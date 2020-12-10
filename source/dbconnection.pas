@@ -4964,7 +4964,7 @@ begin
       DefText := ColQuery.Col('Default');
       ExtraText := ColQuery.Col('Extra');
       Col.OnUpdateType := cdtNothing;
-      if ExecRegExpr('^auto_increment$', ExtraText.ToLowerInvariant) then begin
+      if ExecRegExpr('\bauto_increment\b', ExtraText.ToLowerInvariant) then begin
         Col.DefaultType := cdtAutoInc;
         Col.DefaultText := 'AUTO_INCREMENT';
       end else if ColQuery.IsNull('Default') then begin
@@ -4976,7 +4976,7 @@ begin
         Col.DefaultType := cdtExpression;
         Col.DefaultText := DefText;
       end;
-      Col.OnUpdateText := RegExprGetMatch('^on update (.*)$', ExtraText, 1);
+      Col.OnUpdateText := RegExprGetMatch('\bon update (.*)$', ExtraText, 1, False, True);
       if not Col.OnUpdateText.IsEmpty then begin
         Col.OnUpdateType := cdtExpression;
       end;
