@@ -1,4 +1,4 @@
-﻿unit Main;
+unit Main;
 
 
 // -------------------------------------
@@ -9015,6 +9015,7 @@ var
   DBObj: PDBObject;
   Columns: TTableColumnList;
   DBObjects: TDBObjectList;
+  i: Integer;
 begin
   DBObj := Sender.GetNodeData(Node);
   case DBObj.NodeType of
@@ -9055,6 +9056,14 @@ begin
       if GetParentFormOrFrame(Sender) is TfrmSelectDBObject then begin
         Columns := DBObj.TableColumns;
         ChildCount := Columns.Count;
+      end else begin
+        ChildCount := 0;
+        DBObjects := DBObj.Connection.GetDBObjects(DBObj.Database, False, lntTrigger);
+        for i := 0 to DBObjects.Count - 1 do begin
+          if ContainsText(DBObjects.Items[i].Name, DBObj.Name) then begin
+            ChildCount := ChildCount + 1;
+          end;
+        end;
       end;
   end;
 end;
@@ -9070,6 +9079,7 @@ var
   Item, ParentObj: PDBObject;
   DBObjects: TDBObjectList;
   Columns: TTableColumnList;
+  i, j: Integer;
 begin
   Item := Sender.GetNodeData(Node);
   if not Assigned(ParentNode) then begin
@@ -9109,16 +9119,39 @@ begin
       lntGroup: begin
         DBObjects := ParentObj.Connection.GetDBObjects(ParentObj.Database, False, ParentObj.GroupType);
         Item^ := DBObjects[Node.Index];
-        if (GetParentFormOrFrame(Sender) is TfrmSelectDBObject) and (Item.NodeType = lntTable) then
+        if (GetParentFormOrFrame(Sender) is TfrmSelectDBObject) and (Item.NodeType = lntTable) then begin
           Include(InitialStates, ivsHasChildren);
+        end else begin
+          DBObjects := ParentObj.Connection.GetDBObjects(ParentObj.Database, False, lntTrigger);
+          for i := 0 to DBObjects.Count - 1 do begin
+            if ContainsText(DBObjects.Items[i].Name, Item.Name) then begin
+              Include(InitialStates, ivsHasChildren);
+              break;
+            end;
+          end;
+        end;
       end;
       lntTable: begin
-        Item^ := TDBObject.Create(ParentObj.Connection);
-        Item.NodeType := lntColumn;
-        Columns := ParentObj.TableColumns;
-        Item.Database := ParentObj.Database;
-        Item.Name := ParentObj.Name;
-        Item.Column := Columns[Node.Index].Name;
+        if GetParentFormOrFrame(Sender) is TfrmSelectDBObject then begin
+          Item^ := TDBObject.Create(ParentObj.Connection);
+          Item.NodeType := lntColumn;
+          Columns := ParentObj.TableColumns;
+          Item.Database := ParentObj.Database;
+          Item.Name := ParentObj.Name;
+          Item.Column := Columns[Node.Index].Name;
+        end else begin
+          DBObjects := ParentObj.Connection.GetDBObjects(ParentObj.Database, False, lntTrigger);
+          j := 0;
+          for i := 0 to DBObjects.Count - 1 do begin
+            if ContainsText(DBObjects.Items[i].Name, ParentObj.Name) then begin
+              if j = Node.Index then begin
+                Item^ := DBObjects[i];
+                break;
+              end;
+              j := j + 1;
+            end;
+          end;
+        end;
       end;
     end;
   end;
@@ -14377,4 +14410,3 @@ begin
 end;
 
 end.
-
