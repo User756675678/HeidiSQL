@@ -4594,7 +4594,10 @@ function TMySQLConnection.GetCollationTable: TDBQuery;
 begin
   inherited;
   if (not Assigned(FCollationTable)) and (ServerVersionInt >= 40100) then
-    FCollationTable := GetResults('SHOW COLLATION');
+    FCollationTable := GetResults('SHOW COLLATION WHERE COLLATION LIKE '+EscapeString('utf8%')+
+      ' AND (COLLATION LIKE '+EscapeString('%_bin')+
+      ' OR COLLATION LIKE '+EscapeString('%_general_ci')+
+      ' OR COLLATION LIKE '+EscapeString('%_unicode_ci')+')');
   if Assigned(FCollationTable) then
     FCollationTable.First;
   Result := FCollationTable;
