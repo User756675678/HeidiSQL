@@ -8,7 +8,7 @@ uses
   extra_controls, dbstructures, SynRegExpr;
 
 type
-  TGridExportFormat = (efExcel, efCSV, efHTML, efXML, efSQLInsert, efSQLReplace, efSQLDeleteInsert, efLaTeX, efWiki, efPHPArray, efMarkDown, efJSON);
+  TGridExportFormat = (efExcel, efCSV, efHTML, efXML, efSQLInsert, efSQLSingleInsert, efSQLReplace, efSQLDeleteInsert, efLaTeX, efWiki, efPHPArray, efMarkDown, efJSON);
 
   TfrmExportGrid = class(TExtForm)
     btnOK: TButton;
@@ -86,11 +86,11 @@ type
   public
     { Public declarations }
     const FormatToFileExtension: Array[TGridExportFormat] of String =
-      (('csv'), ('csv'), ('html'), ('xml'), ('sql'), ('sql'), ('sql'), ('LaTeX'), ('wiki'), ('php'), ('md'), ('json'));
+      (('csv'), ('csv'), ('html'), ('xml'), ('sql'), ('sql'), ('sql'), ('sql'), ('LaTeX'), ('wiki'), ('php'), ('md'), ('json'));
     const FormatToDescription: Array[TGridExportFormat] of String =
-      (('Excel CSV'), ('Delimited text'), ('HTML table'), ('XML'), ('SQL INSERTs'), ('SQL REPLACEs'), ('SQL DELETEs/INSERTs'), ('LaTeX'), ('Wiki markup'), ('PHP Array'), ('Markdown Here'), ('JSON'));
+      (('Excel CSV'), ('Delimited text'), ('HTML table'), ('XML'), ('SQL INSERTs'), ('SQL INSERT'), ('SQL REPLACEs'), ('SQL DELETEs/INSERTs'), ('LaTeX'), ('Wiki markup'), ('PHP Array'), ('Markdown Here'), ('JSON'));
     const FormatToImageIndex: Array[TGridExportFormat] of Integer =
-      (49, 50, 32, 48, 201, 201, 201, 153, 154, 202, 199, 200);
+      (49, 50, 32, 48, 201, 201, 201, 201, 153, 154, 202, 199, 200);
     const CopyAsActionPrefix = 'actCopyAs';
     property Grid: TVirtualStringTree read FGrid write FGrid;
     property ExportFormat: TGridExportFormat read GetExportFormat write SetExportFormat;
@@ -797,6 +797,22 @@ begin
         Header := Header + #9 + '"rows":' + CRLF + #9 + '[';
       end;
 
+      efSQLSingleInsert: begin
+        Header := 'INSERT INTO '+GridData.Connection.QuoteIdent(Tablename);
+        if true or chkIncludeColumnNames.Checked then begin
+          Header := Header + ' (';
+          Col := Grid.Header.Columns.GetFirstVisibleColumn;
+          while Col > NoColumn do begin
+            if (Col <> ExcludeCol) and (not GridData.ColIsVirtual(Col)) then
+              Header := Header + GridData.Connection.QuoteIdent(Grid.Header.Columns[Col].Text)+', ';
+            Col := Grid.Header.Columns.GetNextVisibleColumn(Col);
+          end;
+          Delete(Header, Length(Header)-1, 2);
+          Header := Header + ')';
+        end;
+        Header := Header + ' VALUES' + CRLF;
+      end;
+
     end;
     S.WriteString(Header);
 
@@ -844,6 +860,12 @@ begin
             tmp := tmp + ')';
           end;
           tmp := tmp + ' VALUES (';
+        end;
+
+        efSQLSingleInsert: begin
+          tmp := '(';
+          if Node.Index > 0 then
+            tmp := ',' + CRLF + tmp;
         end;
 
         efWiki: tmp := TrimLeft(Separator);
@@ -935,7 +957,7 @@ begin
               end;
             end;
 
-            efSQLInsert, efSQLReplace, efSQLDeleteInsert: begin
+            efSQLInsert, efSQLSingleInsert, efSQLReplace, efSQLDeleteInsert: begin
               if GridData.ColIsVirtual(Col) then
                 Data := ''
               else if GridData.IsNull(Col) then
@@ -1008,6 +1030,10 @@ begin
           Delete(tmp, Length(tmp)-1, 2);
           tmp := tmp + ');' + CRLF;
         end;
+        efSQLSingleInsert: begin
+          Delete(tmp, Length(tmp)-1, 2);
+          tmp := tmp + ')';
+        end;
         efPHPArray:
           tmp := tmp + #9 + '),' + CRLF;
         efMarkDown:
@@ -1054,6 +1080,20 @@ begin
       efJSON: begin
         S.Size := S.Size - 1;
         tmp := CRLF + #9 + ']' + CRLF + '}';
+      end;
+      efSQLSingleInsert: begin
+        tmp := CRLF + 'ON DUPLICATE KEY UPDATE ';
+        if true or chkIncludeColumnNames.Checked then begin
+          Col := Grid.Header.Columns.GetFirstVisibleColumn;
+          while Col > NoColumn do begin
+            if (Col <> ExcludeCol) and (not GridData.ColIsVirtual(Col)) then
+              tmp := tmp + GridData.Connection.QuoteIdent(Grid.Header.Columns[Col].Text) +
+                ' = VALUES(' + GridData.Connection.QuoteIdent(Grid.Header.Columns[Col].Text) + '), ';
+            Col := Grid.Header.Columns.GetNextVisibleColumn(Col);
+          end;
+          Delete(tmp, Length(tmp)-1, 2);
+        end;
+        tmp := tmp + ';' + CRLF;
       end;
       else
         tmp := '';
