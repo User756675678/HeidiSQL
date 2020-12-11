@@ -279,7 +279,7 @@ type
       function IsAnyPostgreSQL: Boolean;
       function IsAnySQLite: Boolean;
       function IsMariaDB: Boolean;
-      function IsMySQL: Boolean;
+      function IsMySQL(StrictDetect: Boolean): Boolean;
       function IsPercona: Boolean;
       function IsTokudb: Boolean;
       function IsInfiniDB: Boolean;
@@ -428,7 +428,6 @@ type
       function GetCollationList: TStringList;
       function GetCharsetTable: TDBQuery; virtual;
       function GetCharsetList: TStringList;
-      function GetInformationSchemaObjects: TStringList; virtual;
       function GetConnectionUptime: Integer;
       function GetServerUptime: Integer;
       function GetServerNow: TDateTime;
@@ -517,7 +516,7 @@ type
       property CollationList: TStringList read GetCollationList;
       property CharsetTable: TDBQuery read GetCharsetTable;
       property CharsetList: TStringList read GetCharsetList;
-      property InformationSchemaObjects: TStringList read GetInformationSchemaObjects;
+      property InformationSchemaObjects: TStringList read FInformationSchemaObjects;
       function ResultCount: Integer;
       property CurrentUserHostCombination: String read GetCurrentUserHostCombination;
       property AllUserHostCombinations: TStringList read GetAllUserHostCombinations;
@@ -596,7 +595,6 @@ type
       function GetAllDatabases: TStringList; override;
       function GetCollationTable: TDBQuery; override;
       function GetCharsetTable: TDBQuery; override;
-      function GetInformationSchemaObjects: TStringList; override;
       function GetRowCount(Obj: TDBObject): Int64; override;
       procedure FetchDbObjects(db: String; var Cache: TDBObjectList); override;
     public
@@ -621,6 +619,7 @@ type
       FRegClasses: TOidStringPairs;
       procedure SetActive(Value: Boolean); override;
       procedure DoBeforeConnect; override;
+      procedure DoAfterConnect; override;
       function GetThreadId: Int64; override;
       procedure SetCharacterSet(CharsetName: String); override;
       function GetLastErrorCode: Cardinal; override;
@@ -1420,80 +1419,52 @@ end;
 
 
 function TConnectionParameters.NetTypeName(LongFormat: Boolean): String;
-var
-  Prefix: String;
+const
+  PrefixMysql = 'MariaDB or MySQL';
+  PrefixProxysql = 'ProxySQL Admin';
+  PrefixMssql = 'Microsoft SQL Server';
+  PrefixPostgres = 'PostgreSQL';
+  PrefixRedshift = 'Redshift PG';
+  PrefixSqlite = 'SQLite';
 begin
   // Return the name of a net type, either in short or long format
-  case NetTypeGroup of
-    ngMySQL: begin
-      if IsMariaDB then
-        Prefix := 'MariaDB'
-      else if IsPercona then
-        Prefix := 'Percona'
-      else if IsTokudb then
-        Prefix := 'TokuDB'
-      else if IsInfiniDB then
-        Prefix := 'InfiniDB'
-      else if IsInfobright then
-        Prefix := 'Infobright'
-      else if IsMemSQL then
-        Prefix := 'MemSQL'
-      else if IsProxySQLAdmin then
-        Prefix := 'ProxySQL Admin'
-      else if IsMySQL then
-        Prefix := 'MySQL'
-      else
-        Prefix := 'MariaDB or MySQL';
-    end;
-    ngMSSQL: begin
-      Prefix := 'Microsoft SQL Server';
-    end;
-    ngPgSQL: begin
-      if IsRedshift then
-        Prefix := 'Redshift PG'
-      else
-        Prefix := 'PostgreSQL';
-    end;
-    ngSQLite: begin
-      Prefix := 'SQLite';
-    end;
-  end;
+  Result := 'Unknown';
 
-  case LongFormat of
-    True: case FNetType of
-      ntMySQL_TCPIP:
-        Result := Prefix+' (TCP/IP)';
-      ntMySQL_NamedPipe:
-        Result := Prefix+' (named pipe)';
-      ntMySQL_SSHtunnel:
-        Result := Prefix+' (SSH tunnel)';
-      ntMySQL_ProxySQLAdmin:
-        Result := Prefix+' (Experimental)';
-      ntMSSQL_NamedPipe:
-        Result := Prefix+' (named pipe)';
-      ntMSSQL_TCPIP:
-        Result := Prefix+' (TCP/IP)';
-      ntMSSQL_SPX:
-        Result := Prefix+' (SPX/IPX)';
-      ntMSSQL_VINES:
-        Result := Prefix+' (Banyan VINES)';
-      ntMSSQL_RPC:
-        Result := Prefix+' (Windows RPC)';
-      ntPgSQL_TCPIP:
-        Result := Prefix+' (TCP/IP)';
-      ntPgSQL_SSHtunnel:
-        Result := Prefix+' (SSH tunnel)';
-      ntSQLite:
-        Result := Prefix+' (Experimental)';
-      else
-        Result := Prefix;
+  if LongFormat then begin
+    case FNetType of
+      ntMySQL_TCPIP:            Result := PrefixMysql+' (TCP/IP)';
+      ntMySQL_NamedPipe:        Result := PrefixMysql+' (named pipe)';
+      ntMySQL_SSHtunnel:        Result := PrefixMysql+' (SSH tunnel)';
+      ntMySQL_ProxySQLAdmin:    Result := PrefixProxysql+' (Experimental)';
+      ntMSSQL_NamedPipe:        Result := PrefixMssql+' (named pipe)';
+      ntMSSQL_TCPIP:            Result := PrefixMssql+' (TCP/IP)';
+      ntMSSQL_SPX:              Result := PrefixMssql+' (SPX/IPX)';
+      ntMSSQL_VINES:            Result := PrefixMssql+' (Banyan VINES)';
+      ntMSSQL_RPC:              Result := PrefixMssql+' (Windows RPC)';
+      ntPgSQL_TCPIP:            Result := PrefixPostgres+' (TCP/IP)';
+      ntPgSQL_SSHtunnel:        Result := PrefixPostgres+' (SSH tunnel)';
+      ntSQLite:                 Result := PrefixSqlite+' (Experimental)';
     end;
-
-    False: case NetTypeGroup of
-      ngMSSQL:
-        Result := 'MS SQL';
-      else
-        Result := Prefix;
+  end
+  else begin
+    case NetTypeGroup of
+      ngMySQL: begin
+        if IsMariaDB then              Result := 'MariaDB'
+        else if IsPercona then         Result := 'Percona'
+        else if IsTokudb then          Result := 'TokuDB'
+        else if IsInfiniDB then        Result := 'InfiniDB'
+        else if IsInfobright then      Result := 'Infobright'
+        else if IsMemSQL then          Result := 'MemSQL'
+        else if IsProxySQLAdmin then   Result := 'ProxySQL Admin'
+        else if IsMySQL(True) then     Result := 'MySQL'
+        else                           Result := PrefixMysql;
+      end;
+      ngMSSQL:                         Result := 'MS SQL';
+      ngPgSQL: begin
+        if IsRedshift then             Result := PrefixRedshift
+        else                           Result := PrefixPostgres;
+      end;
+      ngSQLite:                        Result := PrefixSqlite;
     end;
   end;
 end;
@@ -1557,16 +1528,20 @@ begin
 end;
 
 
-function TConnectionParameters.IsMySQL: Boolean;
+function TConnectionParameters.IsMySQL(StrictDetect: Boolean): Boolean;
 begin
-  Result := IsAnyMySQL
-    and (not IsMariaDB)
-    and (not IsPercona)
-    and (not IsTokudb)
-    and (not IsInfiniDB)
-    and (not IsInfobright)
-    and (not IsProxySQLAdmin)
-    and (not IsMemSQL);
+  if StrictDetect then begin
+    Result := IsAnyMySQL and ContainsText(ServerVersion, 'mysql');
+  end else begin
+    Result := IsAnyMySQL
+      and (not IsMariaDB)
+      and (not IsPercona)
+      and (not IsTokudb)
+      and (not IsInfiniDB)
+      and (not IsInfobright)
+      and (not IsProxySQLAdmin)
+      and (not IsMemSQL);
+  end;
 end;
 
 
@@ -1793,6 +1768,8 @@ begin
   FForeignKeyQueriesFailed := False;
   // System database/schema, should be uppercase on MSSQL only, see #855
   FInfSch := 'information_schema';
+  FInformationSchemaObjects := TStringList.Create;
+  FInformationSchemaObjects.CaseSensitive := False;
   // Characters in identifiers which don't need to be quoted
   FIdentCharsNoQuote := ['A'..'Z', 'a'..'z', '0'..'9', '_'];
 end;
@@ -2839,8 +2816,41 @@ begin
     end;
   end;
 
-  if ServerVersionInt >= 50000 then
+  if ServerVersionInt >= 50000 then begin
     FSQLSpecifities[spKillQuery] := 'KILL QUERY %d';
+    // List of known IS tables since MySQL 5, taken from https://dev.mysql.com/doc/refman/5.6/en/information-schema.html
+    FInformationSchemaObjects.CommaText :=
+      'CHARACTER_SETS,'+
+      'COLLATIONS,'+
+      'COLLATION_CHARACTER_SET_APPLICABILITY,'+
+      'COLUMNS,'+
+      'COLUMN_PRIVILEGES,'+
+      'ENGINES,'+
+      'EVENTS,'+
+      'GLOBAL_STATUS,'+
+      'SESSION_STATUS,'+
+      'GLOBAL_VARIABLES,'+
+      'SESSION_VARIABLES,'+
+      'KEY_COLUMN_USAGE,'+
+      'OPTIMIZER_TRACE,'+
+      'PARAMETERS,'+
+      'PARTITIONS,'+
+      'PLUGINS,'+
+      'PROCESSLIST,'+
+      'PROFILING,'+
+      'REFERENTIAL_CONSTRAINTS,'+
+      'ROUTINES,'+
+      'SCHEMATA,'+
+      'SCHEMA_PRIVILEGES,'+
+      'STATISTICS,'+
+      'TABLES,'+
+      'TABLESPACES,'+
+      'TABLE_CONSTRAINTS,'+
+      'TABLE_PRIVILEGES,'+
+      'TRIGGERS,'+
+      'USER_PRIVILEGES,'+
+      'VIEWS';
+  end;
 
   if (ServerVersionInt >= 50124) and (not Parameters.IsProxySQLAdmin) then
     FSQLSpecifities[spLockedTables] := 'SHOW OPEN TABLES FROM %s WHERE '+QuoteIdent('in_use')+'!=0';
@@ -2869,6 +2879,40 @@ begin
       FSQLSpecifities[spDbObjectsTypeCol] := 'type';
     end;
   end;
+  // List of known IS tables
+  FInformationSchemaObjects.CommaText := 'CHECK_CONSTRAINTS,'+
+    'COLUMN_DOMAIN_USAGE,'+
+    'COLUMN_PRIVILEGES,'+
+    'COLUMNS,'+
+    'CONSTRAINT_COLUMN_USAGE,'+
+    'CONSTRAINT_TABLE_USAGE,'+
+    'DOMAIN_CONSTRAINTS,'+
+    'DOMAINS,'+
+    'KEY_COLUMN_USAGE,'+
+    'PARAMETERS,'+
+    'REFERENTIAL_CONSTRAINTS,'+
+    'ROUTINES,'+
+    'ROUTINE_COLUMNS,'+
+    'SCHEMATA,'+
+    'TABLE_CONSTRAINTS,'+
+    'TABLE_PRIVILEGES,'+
+    'TABLES,'+
+    'VIEW_COLUMN_USAGE,'+
+    'VIEW_TABLE_USAGE,'+
+    'VIEWS';
+end;
+
+
+procedure TPgConnection.DoAfterConnect;
+begin
+  inherited;
+  // List of known IS tables
+  FInformationSchemaObjects.CommaText := 'columns,'+
+    'constraint_column_usage'+
+    'key_column_usage,'+
+    'referential_constraints'+
+    'table_constraints,'+
+    'tables';
 end;
 
 
@@ -4797,7 +4841,7 @@ begin
     Result := Result or ((ServerVersionInt < 100201) and (not Value.StartsWith('CURRENT_TIMESTAMP', True)));
     // Inexact fallback detection, wrong if MariaDB allows "0+1" as expression at some point
     Result := Result or Value.IsEmpty or IsInt(Value[1]);
-  end else if FParameters.IsMySQL then begin
+  end else if FParameters.IsMySQL(False) then begin
     // Only MySQL case with expression in default value is as follows:
     if (Tp.Category = dtcTemporal) and Value.StartsWith('CURRENT_TIMESTAMP', True) then begin
       Result := False;
@@ -5625,58 +5669,6 @@ function TDBConnection.GetSQLSpecifity(Specifity: TSQLSpecifityId; const Args: a
 begin
   Result := GetSQLSpecifity(Specifity);
   Result := Format(Result, Args);
-end;
-
-
-function TDBConnection.GetInformationSchemaObjects: TStringList;
-var
-  Objects: TDBObjectList;
-  Obj: TDBObject;
-begin
-  Log(lcDebug, 'Fetching objects in '+InfSch+' db ...');
-  Ping(True);
-  if not Assigned(FInformationSchemaObjects) then begin
-    FInformationSchemaObjects := TStringList.Create;
-    // Need to find strings case insensitively:
-    FInformationSchemaObjects.CaseSensitive := False;
-    // Gracefully return an empty list on old servers
-    if AllDatabases.IndexOf(InfSch) > -1 then begin
-      Objects := GetDBObjects(InfSch);
-      for Obj in Objects do
-        FInformationSchemaObjects.Add(Obj.Name);
-    end;
-  end;
-  Result := FInformationSchemaObjects;
-end;
-
-
-function TAdoDBConnection.GetInformationSchemaObjects: TStringList;
-begin
-  // MS SQL hides information_schema
-  inherited;
-  if FInformationSchemaObjects.Count = 0 then begin
-    FInformationSchemaObjects.CommaText := 'CHECK_CONSTRAINTS,'+
-      'COLUMN_DOMAIN_USAGE,'+
-      'COLUMN_PRIVILEGES,'+
-      'COLUMNS,'+
-      'CONSTRAINT_COLUMN_USAGE,'+
-      'CONSTRAINT_TABLE_USAGE,'+
-      'DOMAIN_CONSTRAINTS,'+
-      'DOMAINS,'+
-      'KEY_COLUMN_USAGE,'+
-      'PARAMETERS,'+
-      'REFERENTIAL_CONSTRAINTS,'+
-      'ROUTINES,'+
-      'ROUTINE_COLUMNS,'+
-      'SCHEMATA,'+
-      'TABLE_CONSTRAINTS,'+
-      'TABLE_PRIVILEGES,'+
-      'TABLES,'+
-      'VIEW_COLUMN_USAGE,'+
-      'VIEW_TABLE_USAGE,'+
-      'VIEWS';
-  end;
-  Result := FInformationSchemaObjects;
 end;
 
 
