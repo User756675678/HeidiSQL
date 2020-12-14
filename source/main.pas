@@ -2016,6 +2016,8 @@ begin
   CalcNullColors;
 
   DataLocalNumberFormat := AppSettings.ReadBool(asDataLocalNumberFormat);
+  DataGridTable := nil;
+  FActiveDbObj := nil;
 
   // Database tree options
   actGroupObjects.Checked := AppSettings.ReadBool(asGroupTreeObjects);
@@ -9505,7 +9507,7 @@ begin
         TargetCanvas.Font.Style := TargetCanvas.Font.Style + [fsBold];
         Break;
       end;
-      WalkNode := Sender.NodeParent[WalkNode];
+      WalkNode := WalkNode.Parent;
     end;
   end;
 end;
@@ -9529,7 +9531,8 @@ begin
   // Remember currently selected object
   if FocusNewObject = nil then begin
     FocusNewObject := TDBObject.Create(ActiveConnection);
-    FocusNewObject.Assign(ActiveDbObj);
+    if FActiveDbObj <> nil then
+      FocusNewObject.Assign(FActiveDbObj);
   end;
 
   // ReInit tree population
@@ -10474,7 +10477,7 @@ begin
   if not Assigned(DataGridFocusedCell) then
     DataGridFocusedCell := TStringList.Create;
   // Remember focused node and column for selected table
-  if Assigned(DataGrid.FocusedNode) and (ActiveConnection<>nil) and Assigned(DataGridTable) then begin
+  if Assigned(DataGrid.FocusedNode) and (ActiveConnection<>nil) and (DataGridTable<>nil) then begin
     KeyName := DataGridTable.QuotedDatabase+'.'+DataGridTable.QuotedName;
     FocusedCol := '';
     if DataGrid.FocusedColumn > NoColumn then
@@ -10815,11 +10818,12 @@ begin
   vt.BeginUpdate;
   OldOffset := vt.OffsetXY;
   vt.Clear;
-  if Conn <> nil then begin
+  Screen.Cursor := crHourglass;
+
+  if Conn <> nil then try
     Results := GridResult(vt);
     if Results <> nil then
       FreeAndNil(Results);
-    Screen.Cursor := crHourglass;
     if vt = ListVariables then begin
       // Do not use FHostListResults on Variables tab, as we cannot query
       // session and global variables in one query
@@ -10939,11 +10943,14 @@ begin
     end;
 
     FHostListResults[Tab.PageIndex] := Results;
-    Screen.Cursor := crDefault;
     if Results <> nil then
       vt.RootNodeCount := Results.RecordCount;
     vt.OffsetXY := OldOffset;
+  except
+    on E:Exception do ErrorDialog(E.Message);
   end;
+
+  Screen.Cursor := crDefault;
   // Apply or reset filter
   editFilterVTChange(Sender);
   vt.EndUpdate;
