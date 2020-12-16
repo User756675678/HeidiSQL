@@ -633,8 +633,12 @@ function Tconnform.SelectedSessionPath: String;
 var
   Sess: PConnectionParameters;
 begin
-  Sess := ListSessions.GetNodeData(ListSessions.FocusedNode);
-  Result := Sess.SessionPath;
+  if not Assigned(ListSessions.FocusedNode) then
+    Result := ''
+  else begin
+    Sess := ListSessions.GetNodeData(ListSessions.FocusedNode);
+    Result := Sess.SessionPath;
+  end;
 end;
 
 
@@ -994,7 +998,7 @@ end;
 
 procedure Tconnform.TimerStatisticsTimer(Sender: TObject);
 var
-  LastConnect, Created, DummyDate: TDateTime;
+  LastConnect, Created: TDateTime;
 begin
   // Continuously update statistics labels
   lblLastConnectRight.Caption := _('unknown or never');
@@ -1010,15 +1014,17 @@ begin
     Exit;
 
   AppSettings.SessionPath := SelectedSessionPath;
-  DummyDate := StrToDateTime('2000-01-01');
-  LastConnect := StrToDateTimeDef(AppSettings.ReadString(asLastConnect), DummyDate);
-  if LastConnect <> DummyDate then begin
+  if AppSettings.SessionPath.IsEmpty then
+    Exit;
+
+  LastConnect := StrToDateTimeDef(AppSettings.ReadString(asLastConnect), DateTimeNever);
+  if LastConnect <> DateTimeNever then begin
     lblLastConnectRight.Hint := DateTimeToStr(LastConnect);
     lblLastConnectRight.Caption := DateBackFriendlyCaption(LastConnect);
     lblLastConnectRight.Enabled := True;
   end;
-  Created := StrToDateTimeDef(AppSettings.ReadString(asSessionCreated), DummyDate);
-  if Created <> DummyDate then begin
+  Created := StrToDateTimeDef(AppSettings.ReadString(asSessionCreated), DateTimeNever);
+  if Created <> DateTimeNever then begin
     lblCreatedRight.Hint := DateTimeToStr(Created);
     lblCreatedRight.Caption := DateBackFriendlyCaption(Created);
     lblCreatedRight.Enabled := True;

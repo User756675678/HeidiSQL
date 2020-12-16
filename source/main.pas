@@ -1631,7 +1631,7 @@ var
   JumpTask: TJumpTask;
   SessionPath: String;
   i: Integer;
-  LastConnect, DummyDate: TDateTime;
+  LastConnect: TDateTime;
 begin
   // Store names of open sessions
   OpenSessions := TStringList.Create;
@@ -1650,8 +1650,7 @@ begin
     AppSettings.GetSessionPaths('', SessionPaths);
     for SessionPath in SessionPaths do begin
       AppSettings.SessionPath := SessionPath;
-      DummyDate := StrToDateTime('2000-01-01');
-      LastConnect := StrToDateTimeDef(AppSettings.ReadString(asLastConnect), DummyDate);
+      LastConnect := StrToDateTimeDef(AppSettings.ReadString(asLastConnect), DateTimeNever);
       if DaysBetween(LastConnect, Now) <= 30 then
         SortedSessions.Values[SessionPath] := IntToStr(AppSettings.ReadInt(asConnectCount));
     end;
@@ -2139,7 +2138,7 @@ var
   LoadedParams, ConnectionParams: TConnectionParameters;
   LastUpdatecheck, LastStatsCall, LastConnect: TDateTime;
   UpdatecheckInterval, i: Integer;
-  DefaultLastrunDate, LastActiveSession, Environment: String;
+  LastActiveSession, Environment: String;
   frm : TfrmUpdateCheck;
   StatsCall: THttpDownload;
   SessionPaths: TStringlist;
@@ -2147,15 +2146,9 @@ var
   Tab: TQueryTab;
   SessionManager: TConnForm;
 begin
-  DefaultLastrunDate := '2000-01-01';
-
   // Do an updatecheck if checked in settings
   if AppSettings.ReadBool(asUpdatecheck) then begin
-    try
-      LastUpdatecheck := StrToDateTime(AppSettings.ReadString(asUpdatecheckLastrun));
-    except
-      LastUpdatecheck := StrToDateTime(DefaultLastrunDate);
-    end;
+    LastUpdatecheck := StrToDateTimeDef(AppSettings.ReadString(asUpdatecheckLastrun), DateTimeNever);
     UpdatecheckInterval := AppSettings.ReadInt(asUpdatecheckInterval);
     if DaysBetween(Now, LastUpdatecheck) >= UpdatecheckInterval then begin
       frm := TfrmUpdateCheck.Create(Self);
@@ -2186,11 +2179,7 @@ begin
 
   // Call user statistics if checked in settings
   if AppSettings.ReadBool(asDoUsageStatistics) then begin
-    try
-      LastStatsCall := StrToDateTime(AppSettings.ReadString(asLastUsageStatisticCall));
-    except
-      LastStatsCall := StrToDateTime(DefaultLastrunDate);
-    end;
+    LastStatsCall := StrToDateTimeDef(AppSettings.ReadString(asLastUsageStatisticCall), DateTimeNever);
     if DaysBetween(Now, LastStatsCall) >= 30 then begin
       // Report used app version, bits, and theme name (so we find mostly unused ones for removal)
       // Also report environment: WinDesktop, WinUWP or Wine
@@ -2209,11 +2198,7 @@ begin
       // Enumerate actively used server versions
       for i:=0 to SessionPaths.Count-1 do begin
         AppSettings.SessionPath := SessionPaths[i];
-        try
-          LastConnect := StrToDateTime(AppSettings.ReadString(asLastConnect));
-        except
-          LastConnect := StrToDateTime(DefaultLastrunDate);
-        end;
+        LastConnect := StrToDateTimeDef(AppSettings.ReadString(asLastConnect), DateTimeNever);
         if LastConnect > LastStatsCall then begin
           StatsCall.URL := StatsCall.URL + '&s[]=' + IntToStr(AppSettings.ReadInt(asNetType)) + '-' + IntToStr(AppSettings.ReadInt(asServerVersion));
         end;
@@ -6152,8 +6137,8 @@ begin
     end;
     1: if Obj.Rows > -1 then CellText := FormatNumber(Obj.Rows);
     2: if Obj.Size > -1 then CellText := FormatByteNumber(Obj.Size);
-    3: if Obj.Created <> 0 then CellText := DateTimeToStr(Obj.Created);
-    4: if Obj.Updated <> 0 then CellText := DateTimeToStr(Obj.Updated);
+    3: CellText := DateTimeToStrDef(Obj.Created, '');
+    4: CellText := DateTimeToStrDef(Obj.Updated, '');
     5: CellText := Obj.Engine;
     6: CellText := Obj.Comment;
     7: if Obj.Version > -1 then CellText := IntToStr(Obj.Version);
@@ -7874,6 +7859,7 @@ var
   Tabs: TTabSet;
   Rect: TRect;
   Org: TPoint;
+  QueryTab: TQueryTab;
   ResultTab: TResultTab;
   HintSQL: TStringList;
 begin
@@ -7889,12 +7875,15 @@ begin
   // Check if user wants these balloon hints
   if not AppSettings.ReadBool(asHintsOnResultTabs) then
     Exit;
+  QueryTab := ActiveQueryTab;
+  if idx >= QueryTab.ResultTabs.Count then
+    Exit;
 
   // Make SQL readable for the tooltip balloon. WrapText() is unsuitable here.
   // See issue #2014
   // Also, wee need to work around the awful looking balloon text:
   // http://qc.embarcadero.com/wc/qcmain.aspx?d=73771
-  ResultTab := ActiveQueryTab.ResultTabs[idx];
+  ResultTab := QueryTab.ResultTabs[idx];
   HintSQL := TStringList.Create;
   HintSQL.Text := Trim(ResultTab.Results.SQL);
   for i:=0 to HintSQL.Count-1 do begin
@@ -9084,7 +9073,7 @@ var
   i, j: Cardinal;
 begin
   Item := Sender.GetNodeData(Node);
-  if not Assigned(ParentNode) then begin
+  if (not Assigned(ParentNode)) or (ParentNode = nil) then begin
     Item^ := TDBObject.Create(FConnections[Node.Index]);
     // Ensure plus sign is visible for root (and dbs, see below)
     Include(InitialStates, ivsHasChildren);
@@ -9767,12 +9756,15 @@ begin
         end else if HandleUnixTimestampColumn(Sender, Column) then begin
           try
             Timestamp := Trunc(StrToFloat(Results.Col(Column), FFormatSettings));
+            Dec(Timestamp, FTimeZoneOffset);
+            CellText := DateTimeToStr(UnixToDateTime(Timestamp));
           except
             // EConvertError in StrToFloat or EInvalidOp in Trunc or...
-            Timestamp := 0;
+            on E:Exception do begin
+              CellText := Results.Col(Column);
+              LogSQL('Error when calculating Unix timestamp from "'+CellText+'": '+E.Message, lcError);
+            end;
           end;
-          Dec(Timestamp, FTimeZoneOffset);
-          CellText := DateTimeToStr(UnixToDateTime(Timestamp));
         end else begin
           if DataLocalNumberFormat and (not EditingAndFocused) then
             CellText := FormatNumber(Results.Col(Column), True)
@@ -13142,7 +13134,7 @@ begin
              end;
              HELPERNODE_FUNCTIONS: CellText := MySQLFunctions[Node.Index].Name;
              HELPERNODE_KEYWORDS: CellText := MySQLKeywords[Node.Index];
-             HELPERNODE_SNIPPETS: CellText := FSnippetFilenames[Node.Index];
+             HELPERNODE_SNIPPETS: CellText := IfThen(Node.Index<FSnippetFilenames.Count, FSnippetFilenames[Node.Index], '');
              HELPERNODE_HISTORY: begin
                CellText := Tab.HistoryDays[Node.Index];
                if CellText = DateToStr(Today) then

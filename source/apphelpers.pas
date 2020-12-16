@@ -325,6 +325,8 @@ type
   function GetNextNode(Tree: TVirtualStringTree; CurrentNode: PVirtualNode; Selected: Boolean=False): PVirtualNode;
   function GetPreviousNode(Tree: TVirtualStringTree; CurrentNode: PVirtualNode; Selected: Boolean=False): PVirtualNode;
   function DateBackFriendlyCaption(d: TDateTime): String;
+  function DateTimeToStrDef(DateTime: TDateTime; Default: String): String;
+  function TruncDef(X: Real; Default: Int64): Int64;
   function GetLightness(AColor: TColor): Byte;
   function ReformatSQL(SQL: String): String;
   function ParamBlobToStr(lpData: Pointer): String;
@@ -379,6 +381,7 @@ var
   NumberChars: TSysCharSet;
   LibHandleUser32: THandle;
   UTF8NoBOMEncoding: TUTF8NoBOMEncoding;
+  DateTimeNever: TDateTime;
 
 implementation
 
@@ -1066,8 +1069,8 @@ function FormatTimeNumber(Seconds: Double; DisplaySeconds: Boolean): String;
 var
   d, h, m, s, ts: Integer;
 begin
-  s := Trunc(Seconds);
-  ts := Trunc((Seconds - s) * 10); // ts = tenth of a second
+  s := TruncDef(Seconds, 0);
+  ts := TruncDef((Seconds - s) * 10, 0); // ts = tenth of a second
   d := s div (60*60*24);
   s := s mod (60*60*24);
   h := s div (60*60);
@@ -1681,6 +1684,29 @@ begin
   else if MinutesAgo = 1 then Result := f_('%s minute ago', [FormatNumber(MinutesAgo)])
   else if MinutesAgo > 0 then Result := f_('%s minutes ago', [FormatNumber(MinutesAgo)])
   else Result := _('less than a minute ago');
+end;
+
+
+function DateTimeToStrDef(DateTime: TDateTime; Default: String) : String;
+begin
+  try
+    if DateTime = 0 then
+      Result := Default
+    else
+      Result := DateTimeToStr(DateTime);
+  except
+    on EInvalidOp do Result := Default;
+  end;
+end;
+
+
+function TruncDef(X: Real; Default: Int64): Int64;
+begin
+  try
+    Result := Trunc(X);
+  except
+    on EInvalidOp do Result := Default;
+  end;
 end;
 
 
@@ -3606,7 +3632,7 @@ begin
   InitSetting(asUpdatecheck,                      'Updatecheck',                           0, False);
   InitSetting(asUpdatecheckBuilds,                'UpdatecheckBuilds',                     0, False);
   InitSetting(asUpdatecheckInterval,              'UpdatecheckInterval',                   3);
-  InitSetting(asUpdatecheckLastrun,               'UpdatecheckLastrun',                    0, False, '2000-01-01');
+  InitSetting(asUpdatecheckLastrun,               'UpdatecheckLastrun',                    0, False, DateToStr(DateTimeNever));
   InitSetting(asUpdateCheckWindowWidth,           'UpdateCheckWindowWidth',                400);
   InitSetting(asUpdateCheckWindowHeight,          'UpdateCheckWindowHeight',               460);
   InitSetting(asTableToolsWindowWidth,            'TableTools_WindowWidth',                800);
@@ -3641,12 +3667,12 @@ begin
   InitSetting(asCopyTableRecentFilter,            'CopyTable_RecentFilter_%s',             0, False, '');
   InitSetting(asServerVersion,                    'ServerVersion',                         0, False, '', True);
   InitSetting(asServerVersionFull,                'ServerVersionFull',                     0, False, '', True);
-  InitSetting(asLastConnect,                      'LastConnect',                           0, False, '2000-01-01', True);
+  InitSetting(asLastConnect,                      'LastConnect',                           0, False, DateToStr(DateTimeNever), True);
   InitSetting(asConnectCount,                     'ConnectCount',                          0, False, '', True);
   InitSetting(asRefusedCount,                     'RefusedCount',                          0, False, '', True);
   InitSetting(asSessionCreated,                   'SessionCreated',                        0, False, '', True);
   InitSetting(asDoUsageStatistics,                'DoUsageStatistics',                     0, False);
-  InitSetting(asLastUsageStatisticCall,           'LastUsageStatisticCall',                0, False, '2000-01-01');
+  InitSetting(asLastUsageStatisticCall,           'LastUsageStatisticCall',                0, False, DateToStr(DateTimeNever));
   InitSetting(asWheelZoom,                        'WheelZoom',                             0, True);
   InitSetting(asDisplayBars,                      'DisplayBars',                           0, true);
   InitSetting(asMySQLBinaries,                    'MySQL_Binaries',                        0, False, '');
@@ -4334,6 +4360,8 @@ NumberChars := ['0'..'9', FormatSettings.DecimalSeparator, FormatSettings.Thousa
 LibHandleUser32 := LoadLibrary('User32.dll');
 
 UTF8NoBOMEncoding := TUTF8NoBOMEncoding.Create;
+
+DateTimeNever := MinDateTime;
 
 end.
 
