@@ -9943,6 +9943,7 @@ begin
       ErrorDialog(E.Message);
   end;
   Grid.RepaintNode(Grid.FocusedNode);
+  ValidateControls(Sender);
 end;
 
 
@@ -13990,7 +13991,7 @@ end;
 
 procedure TQueryTab.SaveContents(Filename: String; OnlySelection: Boolean);
 var
-  Text, LB: String;
+  Text, LB, FileDir: String;
 begin
   Screen.Cursor := crHourGlass;
   MainForm.ShowStatusMsg(_('Saving file ...'));
@@ -14006,12 +14007,22 @@ begin
   end;
   if LB <> '' then
     Text := StringReplace(Text, CRLF, LB, [rfReplaceAll]);
-  SaveUnicodeFile( Filename, Text );
-  MemoFilename := Filename;
-  Memo.Modified := False;
-  LastSaveTime := GetTickCount;
+  try
+    FileDir := ExtractFilePath(Filename);
+    if not DirectoryExists(FileDir) then
+      ForceDirectories(FileDir);
+    SaveUnicodeFile(Filename, Text);
+    MemoFilename := Filename;
+    Memo.Modified := False;
+    LastSaveTime := GetTickCount;
+    Screen.Cursor := crDefault;
+  except
+    on E:EFCreateError do begin
+      Screen.Cursor := crDefault;
+      ErrorDialog(E.Message);
+    end;
+  end;
   MainForm.ShowStatusMsg;
-  Screen.Cursor := crDefault;
 end;
 
 
@@ -14101,7 +14112,7 @@ begin
   FMemoFilename := Value;
   MainForm.SetTabCaption(TabSheet.PageIndex, ExtractFilename(FMemoFilename));
   MainForm.ValidateQueryControls(Self);
-  if FMemoFilename <> '' then begin
+  if (FMemoFilename <> '') and FileExists(FMemoFilename) then begin
     DirectoryWatch.Directory := ExtractFilePath(FMemoFilename);
     DirectoryWatch.Start;
   end else
