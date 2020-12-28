@@ -1,4 +1,4 @@
-unit options;
+unit preferences;
 
 
 // -------------------------------------
@@ -13,7 +13,7 @@ uses
   StdCtrls, ComCtrls, ExtCtrls, SynEditHighlighter, SynHighlighterSQL,
   SynEdit, SynMemo, VirtualTrees, SynEditKeyCmds, ActnList, StdActns, Menus,
   dbstructures, gnugettext, Vcl.Themes, Vcl.Styles, SynRegExpr, Generics.Collections,
-  Vcl.ImageCollection, extra_controls, theme_preview, Vcl.Buttons;
+  Vcl.ImageCollection, extra_controls, theme_preview, Vcl.Buttons, System.Actions;
 
 type
   TShortcutItemData = record
@@ -31,7 +31,7 @@ type
   end;
   TGridColorsPresetList = TObjectList<TGridColorsPreset>;
 
-  Toptionsform = class(TExtForm)
+  TfrmPreferences = class(TExtForm)
     pagecontrolMain: TPageControl;
     tabMisc: TTabSheet;
     btnCancel: TButton;
@@ -216,8 +216,7 @@ type
     procedure FormDestroy(Sender: TObject);
     procedure chkThemePreviewClick(Sender: TObject);
     procedure chkCompletionProposalClick(Sender: TObject);
-    procedure HotKey1Change(Sender: TObject);
-    procedure HotKey2Change(Sender: TObject);
+    procedure HotKeyChange(Sender: TObject);
   private
     { Private declarations }
     FWasModified: Boolean;
@@ -230,10 +229,14 @@ type
     FThemePreview: TfrmThemePreview;
     procedure InitLanguages;
     procedure SelectDirectory(Sender: TObject; NewFolderButton: Boolean);
+    function EnsureShortcutIsUnused(RequestShortcut: TShortCut): Boolean;
   public
     { Public declarations }
   end;
 
+
+var
+  frmPreferences: TfrmPreferences;
 
 function EnumFixedProc(lpelf: PEnumLogFont; lpntm: PNewTextMetric; FontType: Integer; Data: LPARAM): Integer; stdcall;
 
@@ -243,7 +246,7 @@ uses main, apphelpers;
 {$R *.DFM}
 
 
-procedure Toptionsform.Modified(Sender: TObject);
+procedure TfrmPreferences.Modified(Sender: TObject);
 begin
   // Modified
   btnApply.Enabled := True;
@@ -254,7 +257,7 @@ begin
 end;
 
 
-procedure Toptionsform.pagecontrolMainChanging(Sender: TObject;
+procedure TfrmPreferences.pagecontrolMainChanging(Sender: TObject;
   var AllowChange: Boolean);
 begin
   // Remember modification state. First tab switch leads TEdit's with TUpDown
@@ -263,7 +266,7 @@ begin
 end;
 
 
-procedure Toptionsform.pagecontrolMainChange(Sender: TObject);
+procedure TfrmPreferences.pagecontrolMainChange(Sender: TObject);
 begin
   // See OnChanging procedure
   btnApply.Enabled := FWasModified;
@@ -273,7 +276,7 @@ end;
 {**
   Apply settings to registry and mainform
 }
-procedure Toptionsform.Apply(Sender: TObject);
+procedure TfrmPreferences.Apply(Sender: TObject);
 var
   i: Integer;
   Attri: TSynHighlighterAttributes;
@@ -458,17 +461,19 @@ begin
 end;
 
 
-procedure Toptionsform.FormClose(Sender: TObject; var Action: TCloseAction);
+procedure TfrmPreferences.FormClose(Sender: TObject; var Action: TCloseAction);
 begin
   if FRestartOptionApplied then begin
     MessageDialog(f_('You should restart %s to apply changed critical settings, and to prevent unexpected behaviour.', [APPNAME]),
       mtInformation,
       [mbOk]);
   end;
+  MainForm.ActionList1.State := asNormal;
+  Action := caFree;
 end;
 
 
-procedure Toptionsform.FormCreate(Sender: TObject);
+procedure TfrmPreferences.FormCreate(Sender: TObject);
 const
   // Define grid colors as constants, for easy assignment
   GridColorsLight: TGridTextColors = ($00FF0000, $00FF0048, $00008000, $00800080, $00000080, $00808000, $00008080);
@@ -608,13 +613,13 @@ begin
 end;
 
 
-procedure Toptionsform.FormDestroy(Sender: TObject);
+procedure TfrmPreferences.FormDestroy(Sender: TObject);
 begin
   AppSettings.WriteInt(asPreferencesWindowWidth, Width);
   AppSettings.WriteInt(asPreferencesWindowHeight, Height);
 end;
 
-procedure Toptionsform.FormShow(Sender: TObject);
+procedure TfrmPreferences.FormShow(Sender: TObject);
 var
   LangCode, GUIFont: String;
   i: Integer;
@@ -739,6 +744,9 @@ begin
   chkAskFileSave.Checked := AppSettings.ReadBool(asPromptSaveFileOnTabClose);
   chkRestoreTabs.Checked := AppSettings.ReadBool(asRestoreTabs);
 
+  // Disable global shortcuts
+  MainForm.ActionList1.State := asSuspended;
+
   FRestartOptionTouched := False;
   btnApply.Enabled := False;
   screen.Cursor := crdefault;
@@ -746,7 +754,7 @@ end;
 
 
 
-procedure Toptionsform.SQLFontChange(Sender: TObject);
+procedure TfrmPreferences.SQLFontChange(Sender: TObject);
 var
   AttriIdx: Integer;
   Attri: TSynHighlighterAttributes;
@@ -776,19 +784,19 @@ begin
 end;
 
 
-procedure Toptionsform.DataFontsChange(Sender: TObject);
+procedure TfrmPreferences.DataFontsChange(Sender: TObject);
 begin
   Modified(Sender);
 end;
 
-procedure Toptionsform.anyUpDownLimitChanging(Sender: TObject;
+procedure TfrmPreferences.anyUpDownLimitChanging(Sender: TObject;
   var AllowChange: Boolean);
 begin
   Modified(Sender);
 end;
 
 
-procedure Toptionsform.editGridRowCountExit(Sender: TObject);
+procedure TfrmPreferences.editGridRowCountExit(Sender: TObject);
 var
   Edit: TEdit;
 begin
@@ -800,7 +808,7 @@ begin
 end;
 
 
-procedure Toptionsform.SelectDirectory(Sender: TObject; NewFolderButton: Boolean);
+procedure TfrmPreferences.SelectDirectory(Sender: TObject; NewFolderButton: Boolean);
 var
   Browse: TBrowseForFolder;
   Edit: TButtonedEdit;
@@ -821,21 +829,21 @@ begin
 end;
 
 
-procedure Toptionsform.editLogDirRightButtonClick(Sender: TObject);
+procedure TfrmPreferences.editLogDirRightButtonClick(Sender: TObject);
 begin
   // Select folder for session logs
   SelectDirectory(Sender, True);
 end;
 
 
-procedure Toptionsform.editMySQLBinariesRightButtonClick(Sender: TObject);
+procedure TfrmPreferences.editMySQLBinariesRightButtonClick(Sender: TObject);
 begin
   // Select folder where MySQL binaries reside
   SelectDirectory(Sender, False);
 end;
 
 
-procedure Toptionsform.editCustomSnippetsDirectoryRightButtonClick(Sender: TObject);
+procedure TfrmPreferences.editCustomSnippetsDirectoryRightButtonClick(Sender: TObject);
 begin
   // Set custom snippets directory
   SelectDirectory(Sender, True);
@@ -845,7 +853,7 @@ end;
 {**
   Updatecheck checkbox was clicked
 }
-procedure Toptionsform.chkUpdatecheckClick(Sender: TObject);
+procedure TfrmPreferences.chkUpdatecheckClick(Sender: TObject);
 begin
   updownUpdatecheckInterval.Enabled := chkUpdatecheck.Checked;
   editUpdatecheckInterval.Enabled := chkUpdatecheck.Checked;
@@ -854,20 +862,20 @@ begin
 end;
 
 
-procedure Toptionsform.chkCompletionProposalClick(Sender: TObject);
+procedure TfrmPreferences.chkCompletionProposalClick(Sender: TObject);
 begin
   chkCompletionProposalSearchOnMid.Enabled := TCheckBox(Sender).Checked;
   Modified(Sender);
 end;
 
-procedure Toptionsform.chkLogToFileClick(Sender: TObject);
+procedure TfrmPreferences.chkLogToFileClick(Sender: TObject);
 begin
   editLogDir.Enabled := TCheckBox(Sender).Checked;
   Modified(Sender);
 end;
 
 
-procedure Toptionsform.chkQueryHistoryClick(Sender: TObject);
+procedure TfrmPreferences.chkQueryHistoryClick(Sender: TObject);
 begin
   editQueryHistoryKeepDays.Enabled := chkQueryHistory.Checked;
   updownQueryHistoryKeepDays.Enabled := chkQueryHistory.Checked;
@@ -876,7 +884,7 @@ begin
 end;
 
 
-procedure Toptionsform.comboEditorColorsPresetChange(Sender: TObject);
+procedure TfrmPreferences.comboEditorColorsPresetChange(Sender: TObject);
 var
   i, j: Integer;
   Highlighter: TSynSQLSyn;
@@ -922,7 +930,7 @@ begin
 end;
 
 
-procedure Toptionsform.comboGridTextColorsPresetSelect(Sender: TObject);
+procedure TfrmPreferences.comboGridTextColorsPresetSelect(Sender: TObject);
 var
   Preset: TGridColorsPreset;
   dtc: TDBDatatypeCategoryIndex;
@@ -938,14 +946,14 @@ begin
 end;
 
 
-procedure Toptionsform.comboGridTextColorsSelect(Sender: TObject);
+procedure TfrmPreferences.comboGridTextColorsSelect(Sender: TObject);
 begin
   // Data type category selected
   colorboxGridTextColors.Selected := FGridTextColors[TDBDatatypeCategoryIndex(comboGridTextColors.ItemIndex)];
 end;
 
 
-procedure Toptionsform.comboGUIFontChange(Sender: TObject);
+procedure TfrmPreferences.comboGUIFontChange(Sender: TObject);
 var
   UseCustomFont: Boolean;
 begin
@@ -958,7 +966,7 @@ begin
 end;
 
 
-procedure Toptionsform.colorBoxGridTextColorsSelect(Sender: TObject);
+procedure TfrmPreferences.colorBoxGridTextColorsSelect(Sender: TObject);
 begin
   // Color selected
   FGridTextColors[TDBDatatypeCategoryIndex(comboGridTextColors.ItemIndex)] := colorboxGridTextColors.Selected;
@@ -966,7 +974,7 @@ begin
 end;
 
 
-procedure Toptionsform.comboSQLColElementChange(Sender: TObject);
+procedure TfrmPreferences.comboSQLColElementChange(Sender: TObject);
 var
   AttriIdx: Integer;
   Attri: TSynHighlighterAttributes;
@@ -1001,7 +1009,7 @@ begin
 end;
 
 
-procedure Toptionsform.comboThemeSelect(Sender: TObject);
+procedure TfrmPreferences.comboThemeSelect(Sender: TObject);
 begin
   // Select text colors so they fit to the selected theme
   if ThemeIsDark(comboTheme.Text) then begin
@@ -1025,7 +1033,7 @@ begin
 end;
 
 
-procedure Toptionsform.updownSQLFontSizeClick(Sender: TObject;
+procedure TfrmPreferences.updownSQLFontSizeClick(Sender: TObject;
   Button: TUDBtnType);
 begin
   SQLFontChange(Sender);
@@ -1035,7 +1043,7 @@ end;
 {**
   Select attribute in pulldown by click into SynMemo
 }
-procedure Toptionsform.SynMemoSQLSampleClick(Sender: TObject);
+procedure TfrmPreferences.SynMemoSQLSampleClick(Sender: TObject);
 var
   Token: UnicodeString;
   Attri: TSynHighlighterAttributes;
@@ -1054,7 +1062,7 @@ begin
 end;
 
 
-procedure Toptionsform.btnRestoreDefaultsClick(Sender: TObject);
+procedure TfrmPreferences.btnRestoreDefaultsClick(Sender: TObject);
 var
   ValueList: TStringlist;
   i: Integer;
@@ -1072,7 +1080,7 @@ begin
 end;
 
 
-procedure Toptionsform.chkThemePreviewClick(Sender: TObject);
+procedure TfrmPreferences.chkThemePreviewClick(Sender: TObject);
 begin
   // Show or hide theme preview window
   if chkThemePreview.Checked then begin
@@ -1086,7 +1094,7 @@ begin
   end;
 end;
 
-procedure Toptionsform.TreeShortcutItemsFocusChanged(Sender: TBaseVirtualTree; Node: PVirtualNode;
+procedure TfrmPreferences.TreeShortcutItemsFocusChanged(Sender: TBaseVirtualTree; Node: PVirtualNode;
   Column: TColumnIndex);
 var
   ShortcutFocused: Boolean;
@@ -1113,7 +1121,7 @@ begin
 end;
 
 
-procedure Toptionsform.TreeShortcutItemsGetImageIndex(Sender: TBaseVirtualTree; Node: PVirtualNode;
+procedure TfrmPreferences.TreeShortcutItemsGetImageIndex(Sender: TBaseVirtualTree; Node: PVirtualNode;
   Kind: TVTImageKind; Column: TColumnIndex; var Ghosted: Boolean; var ImageIndex: TImageIndex);
 var
   Data: PShortcutItemData;
@@ -1130,13 +1138,13 @@ begin
 end;
 
 
-procedure Toptionsform.TreeShortcutItemsGetNodeDataSize(Sender: TBaseVirtualTree; var NodeDataSize: Integer);
+procedure TfrmPreferences.TreeShortcutItemsGetNodeDataSize(Sender: TBaseVirtualTree; var NodeDataSize: Integer);
 begin
   NodeDataSize := SizeOf(TShortcutItemData);
 end;
 
 
-procedure Toptionsform.TreeShortcutItemsGetText(Sender: TBaseVirtualTree; Node: PVirtualNode; Column: TColumnIndex;
+procedure TfrmPreferences.TreeShortcutItemsGetText(Sender: TBaseVirtualTree; Node: PVirtualNode; Column: TColumnIndex;
   TextType: TVSTTextType; var CellText: String);
 var
   Data: PShortcutItemData;
@@ -1167,7 +1175,7 @@ begin
 end;
 
 
-procedure Toptionsform.TreeShortcutItemsInitChildren(Sender: TBaseVirtualTree; Node: PVirtualNode;
+procedure TfrmPreferences.TreeShortcutItemsInitChildren(Sender: TBaseVirtualTree; Node: PVirtualNode;
   var ChildCount: Cardinal);
 var
   i: Integer;
@@ -1189,7 +1197,7 @@ begin
 end;
 
 
-procedure Toptionsform.TreeShortcutItemsInitNode(Sender: TBaseVirtualTree; ParentNode, Node: PVirtualNode;
+procedure TfrmPreferences.TreeShortcutItemsInitNode(Sender: TBaseVirtualTree; ParentNode, Node: PVirtualNode;
   var InitialStates: TVirtualNodeInitStates);
 var
   Data: PShortcutItemData;
@@ -1222,29 +1230,78 @@ begin
 end;
 
 
-procedure Toptionsform.HotKey1Change(Sender: TObject);
+function TfrmPreferences.EnsureShortcutIsUnused(RequestShortcut: TShortCut): Boolean;
 var
+  Node, NodeWantsIt: PVirtualNode;
   Data: PShortcutItemData;
+  Tree: TVirtualStringTree;
+  MsgFormat, Msg: String;
 begin
-  // Shortcut 1 changed
-  Data := TreeShortcutItems.GetNodeData(TreeShortcutItems.FocusedNode);
-  Data.Shortcut1 := (Sender as THotKey).HotKey;
-  Modified(Sender);
+  Result := True;
+  if RequestShortcut = 0 then
+    Exit;
+  MsgFormat := _('Keyboard shortcut [%s] is already assigned to "%s".') + sLineBreak + sLineBreak +
+    _('Remove it there and assign to "%s" instead?');
+  Tree := TreeShortcutItems;
+  NodeWantsIt := Tree.FocusedNode;
+  Node := GetNextNode(Tree, nil, False);
+  while Assigned(Node) do begin
+    if Tree.GetNodeLevel(Node) = 1 then begin
+      Data := Tree.GetNodeData(Node);
+      Msg := Format(MsgFormat, [ShortCutToText(RequestShortcut), Tree.Text[Node, 0], Tree.Text[NodeWantsIt, 0]]);
+      if Node = NodeWantsIt then begin
+        // Ignore requesting node
+      end else begin
+        if Data.ShortCut1 = RequestShortcut then begin
+          if MessageDialog(Msg, mtConfirmation, [mbYes, mbNo]) = mrYes then
+            Data.ShortCut1 := 0 // Unassign shortcut 1
+          else
+            Result := False;
+        end;
+        if Data.ShortCut2 = RequestShortcut then begin
+          if MessageDialog(Msg, mtConfirmation, [mbYes, mbNo]) = mrYes then
+            Data.ShortCut2 := 0 // Unassign shortcut 2
+          else
+            Result := False;
+        end;
+      end;
+    end;
+    if Result = False then
+      Break;
+    Node := GetNextNode(Tree, Node, False);
+  end;
+
 end;
 
 
-procedure Toptionsform.HotKey2Change(Sender: TObject);
+procedure TfrmPreferences.HotKeyChange(Sender: TObject);
 var
   Data: PShortcutItemData;
+  HotKeyEdit: THotKey;
+  EventHandler: TNotifyEvent;
 begin
-  // Shortcut 2 changed
+  // Shortcut 1 or 2 changed
+  HotKeyEdit := Sender as THotKey;
   Data := TreeShortcutItems.GetNodeData(TreeShortcutItems.FocusedNode);
-  Data.Shortcut2 := (Sender as THotKey).HotKey;
-  Modified(Sender);
+  if EnsureShortcutIsUnused(HotKeyEdit.HotKey) then begin
+    if HotKeyEdit = HotKey1 then
+      Data.Shortcut1 := HotKeyEdit.HotKey
+    else
+      Data.Shortcut2 := HotKeyEdit.HotKey;
+    Modified(Sender);
+  end else begin
+    // Undo change in hotkey editor, without triggering OnChange event
+    EventHandler := HotKeyEdit.OnChange;
+    if HotKeyEdit = HotKey1 then
+      HotKeyEdit.HotKey := Data.ShortCut1
+    else
+      HotKeyEdit.HotKey := Data.ShortCut2;
+    HotKeyEdit.OnChange := EventHandler;
+  end;
 end;
 
 
-procedure Toptionsform.HotKeyEnter(Sender: TObject);
+procedure TfrmPreferences.HotKeyEnter(Sender: TObject);
 begin
   // Remove Esc and Enter shortcuts from buttons
   btnOk.Default := False;
@@ -1252,7 +1309,7 @@ begin
 end;
 
 
-procedure Toptionsform.HotKeyExit(Sender: TObject);
+procedure TfrmPreferences.HotKeyExit(Sender: TObject);
 begin
   // Readd Esc and Enter shortcuts to buttons
   btnOk.Default := True;
@@ -1260,7 +1317,7 @@ begin
 end;
 
 
-procedure Toptionsform.InitLanguages;
+procedure TfrmPreferences.InitLanguages;
 var
   LangNames: String;
   AvailLangCodes: TStringList;

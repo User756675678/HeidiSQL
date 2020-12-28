@@ -14,7 +14,7 @@ uses
   ShlObj, SynEditMiscClasses, SynEditSearch, SynEditRegexSearch, SynCompletionProposal, SynEditHighlighter,
   SynHighlighterSQL, Tabs, SynUnicode, SynRegExpr, ExtActns, IOUtils, Types, Themes, ComObj,
   CommCtrl, Contnrs, Generics.Collections, Generics.Defaults, SynEditExport, SynExportHTML, SynExportRTF, Math, ExtDlgs, Registry, AppEvnts,
-  routine_editor, trigger_editor, event_editor, options, EditVar, apphelpers, createdatabase, table_editor,
+  routine_editor, trigger_editor, event_editor, preferences, EditVar, apphelpers, createdatabase, table_editor,
   TableTools, View, Usermanager, SelectDBObject, connections, sqlhelp, dbconnection,
   insertfiles, searchreplace, loaddata, copytable, csv_detector, VirtualTrees.HeaderPopup, VirtualTrees.Utils, Cromis.DirectoryWatch, SyncDB, gnugettext,
   JumpList, System.Actions, System.UITypes, pngimage,
@@ -1176,7 +1176,6 @@ type
     FDBObjectsMaxSize: Int64;
     FDBObjectsMaxRows: Int64;
     FSearchReplaceDialog: TfrmSearchReplace;
-    FPreferencesDialog: Toptionsform;
     FCreateDatabaseDialog: TCreateDatabaseForm;
     FTableToolsDialog: TfrmTableTools;
     FGridEditFunctionMode: Boolean;
@@ -2631,13 +2630,13 @@ end;
 procedure TMainForm.actPreferencesExecute(Sender: TObject);
 begin
   // Preferences
-  FPreferencesDialog := Toptionsform.Create(Self);
+  frmPreferences := TfrmPreferences.Create(Self);
   if Sender = actPreferencesLogging then
-    FPreferencesDialog.pagecontrolMain.ActivePage := FPreferencesDialog.tabLogging
+    frmPreferences.pagecontrolMain.ActivePage := frmPreferences.tabLogging
   else if Sender = actPreferencesData then
-    FPreferencesDialog.pagecontrolMain.ActivePage := FPreferencesDialog.tabGridFormatting;
-  FPreferencesDialog.ShowModal;
-  FreeAndNil(FPreferencesDialog);
+    frmPreferences.pagecontrolMain.ActivePage := frmPreferences.tabGridFormatting;
+  frmPreferences.ShowModal;
+  frmPreferences := nil; // Important in SetupSynEditors
 end;
 
 procedure TMainForm.actHelpExecute(Sender: TObject);
@@ -3842,7 +3841,7 @@ end;
 // Load SQL-file, make sure that SheetQuery is activated
 procedure TMainForm.actLoadSQLExecute(Sender: TObject);
 var
-  i: Integer;
+  i, ProceedResult: Integer;
   Dialog: TOpenTextFileDialog;
   Encoding: TEncoding;
   Tab: TQueryTab;
@@ -3856,12 +3855,22 @@ begin
   Dialog.EncodingIndex := AppSettings.ReadInt(asFileDialogEncoding, Self.Name);
   if Dialog.Execute then begin
     Encoding := GetEncodingByName(Dialog.Encodings[Dialog.EncodingIndex]);
-    if not RunQueryFiles(Dialog.Files, Encoding, Sender=actRunSQL) then begin
-      for i:=0 to Dialog.Files.Count-1 do begin
-        Tab := GetOrCreateEmptyQueryTab(False);
-        Tab.LoadContents(Dialog.Files[i], True, Encoding);
-        if i = Dialog.Files.Count-1 then
-          SetMainTab(Tab.TabSheet);
+    if Encoding = nil then begin
+      ProceedResult := MessageDialog(_('Really auto-detect file encoding?') + SLineBreak + SLineBreak +
+        _('Auto detecting the encoding of a file is highly discouraged. You may experience data loss if the detection fails.'),
+        mtConfirmation, [mbYes, mbCancel]);
+    end else begin
+      ProceedResult := mrYes;
+    end;
+
+    if ProceedResult = mrYes then begin
+      if not RunQueryFiles(Dialog.Files, Encoding, Sender=actRunSQL) then begin
+        for i:=0 to Dialog.Files.Count-1 do begin
+          Tab := GetOrCreateEmptyQueryTab(False);
+          Tab.LoadContents(Dialog.Files[i], True, Encoding);
+          if i = Dialog.Files.Count-1 then
+            SetMainTab(Tab.TabSheet);
+        end;
       end;
     end;
     AppSettings.WriteInt(asFileDialogEncoding, Dialog.EncodingIndex, Self.Name);
@@ -7839,9 +7848,9 @@ begin
     btn.Down := not btn.Down;
     if not btn.Down then Exit;
     if btn = tbtnDataColumns then
-      frm := TColumnSelectionForm.Create(self)
+      frm := TfrmColumnSelection.Create(self)
     else if btn = tbtnDataSorting then
-      frm := TDataSortingForm.Create(self)
+      frm := TfrmDataSorting.Create(self)
     else
       frm := TForm.Create(self); // Dummy fallback, should never get created
     // Position new form relative to btn's position
@@ -9915,7 +9924,7 @@ begin
     InvalidateVT(DataGrid, VTREE_NOTLOADED_PURGECACHE, False);
 
   end else begin
-    frm := TColumnSelectionForm.Create(self);
+    frm := TfrmColumnSelection.Create(Self);
     // Position new form relative to btn's position
     frm.Top := HitInfo.Y + DataGrid.ClientOrigin.Y - Integer(DataGrid.Header.Height);
     frm.Left := HitInfo.X + DataGrid.ClientOrigin.X;
@@ -12307,8 +12316,8 @@ begin
   Editors.Add(SynMemoSQLLog);
   if Assigned(ActiveObjectEditor) then
     FindEditors(ActiveObjectEditor);
-  if Assigned(FPreferencesDialog) then
-    Editors.Add(FPreferencesDialog.SynMemoSQLSample);
+  if Assigned(frmPreferences) then
+    Editors.Add(frmPreferences.SynMemoSQLSample);
   if Assigned(FCreateDatabaseDialog) then
     Editors.Add(FCreateDatabaseDialog.SynMemoCreateCode);
   if SqlHelpDialog <> nil then begin
