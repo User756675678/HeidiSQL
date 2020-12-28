@@ -9092,7 +9092,8 @@ var
   Item, ParentObj: PDBObject;
   DBObjects: TDBObjectList;
   Columns: TTableColumnList;
-  i, j: Cardinal;
+  i: Integer;
+  j: Cardinal;
 begin
   Item := Sender.GetNodeData(Node);
   if (not Assigned(ParentNode)) or (ParentNode = nil) then begin
