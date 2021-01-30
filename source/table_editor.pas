@@ -58,13 +58,13 @@ type
     tabALTERCode: TTabSheet;
     SynMemoCREATEcode: TSynMemo;
     SynMemoALTERcode: TSynMemo;
-    popupIndexes: TPopupMenu;
-    menuAddIndex: TMenuItem;
+    popupProperties: TPopupMenu;
+    menuAddProperty: TMenuItem;
     menuAddIndexColumn: TMenuItem;
-    menuRemoveIndex: TMenuItem;
+    menuRemoveProperty: TMenuItem;
     menuMoveUpIndex: TMenuItem;
     menuMoveDownIndex: TMenuItem;
-    menuClearIndexes: TMenuItem;
+    menuClearProperties: TMenuItem;
     popupColumns: TPopupMenu;
     menuAddColumn: TMenuItem;
     menuRemoveColumn: TMenuItem;
@@ -86,6 +86,13 @@ type
     menuPasteColumns: TMenuItem;
     tabPartitions: TTabSheet;
     SynMemoPartitions: TSynMemo;
+    tabCheckConstraints: TTabSheet;
+    tlbCheckConstraints: TToolBar;
+    btnAddCheckConstraint: TToolButton;
+    btnRemoveCheckConstraint: TToolButton;
+    btnClearCheckConstraints: TToolButton;
+    listCheckConstraints: TVirtualStringTree;
+    Copy1: TMenuItem;
     procedure Modification(Sender: TObject);
     procedure btnAddColumnClick(Sender: TObject);
     procedure btnRemoveColumnClick(Sender: TObject);
@@ -139,7 +146,7 @@ type
     procedure menuAddIndexColumnClick(Sender: TObject);
     procedure PageControlMainChange(Sender: TObject);
     procedure chkCharsetConvertClick(Sender: TObject);
-    procedure treeIndexesClick(Sender: TObject);
+    procedure AnyTreeClick(Sender: TObject);
     procedure btnDiscardClick(Sender: TObject);
     procedure popupColumnsPopup(Sender: TObject);
     procedure AddIndexByColumn(Sender: TObject);
@@ -171,6 +178,29 @@ type
     procedure menuCopyColumnsClick(Sender: TObject);
     procedure menuPasteColumnsClick(Sender: TObject);
     procedure listColumnsChange(Sender: TBaseVirtualTree; Node: PVirtualNode);
+    procedure AnyTreeStructureChange(Sender: TBaseVirtualTree;
+      Node: PVirtualNode; Reason: TChangeReason);
+    procedure listCheckConstraintsBeforePaint(Sender: TBaseVirtualTree;
+      TargetCanvas: TCanvas);
+    procedure btnAddCheckConstraintClick(Sender: TObject);
+    procedure listCheckConstraintsGetImageIndex(Sender: TBaseVirtualTree;
+      Node: PVirtualNode; Kind: TVTImageKind; Column: TColumnIndex;
+      var Ghosted: Boolean; var ImageIndex: TImageIndex);
+    procedure listCheckConstraintsFocusChanged(Sender: TBaseVirtualTree;
+      Node: PVirtualNode; Column: TColumnIndex);
+    procedure listCheckConstraintsGetText(Sender: TBaseVirtualTree;
+      Node: PVirtualNode; Column: TColumnIndex; TextType: TVSTTextType;
+      var CellText: string);
+    procedure listCheckConstraintsCreateEditor(Sender: TBaseVirtualTree;
+      Node: PVirtualNode; Column: TColumnIndex; out EditLink: IVTEditLink);
+    procedure listCheckConstraintsNewText(Sender: TBaseVirtualTree;
+      Node: PVirtualNode; Column: TColumnIndex; NewText: string);
+    procedure btnClearCheckConstraintsClick(Sender: TObject);
+    procedure btnRemoveCheckConstraintClick(Sender: TObject);
+    procedure popupPropertiesPopup(Sender: TObject);
+    procedure menuRemovePropertyClick(Sender: TObject);
+    procedure menuClearPropertiesClick(Sender: TObject);
+    procedure menuAddPropertyClick(Sender: TObject);
   private
     { Private declarations }
     FLoaded: Boolean;
@@ -178,7 +208,10 @@ type
     FColumns: TTableColumnList;
     FKeys: TTableKeyList;
     FForeignKeys: TForeignKeyList;
-    DeletedKeys, DeletedForeignKeys: TStringList;
+    FCheckConstraints: TCheckConstraintList;
+    FDeletedKeys,
+    FDeletedForeignKeys,
+    FDeletedCheckConstraints: TStringList;
     procedure ValidateColumnControls;
     procedure ValidateIndexControls;
     procedure MoveFocusedIndexPart(NewIdx: Cardinal);
@@ -188,6 +221,7 @@ type
     procedure UpdateSQLcode;
     function CellEditingAllowed(Node: PVirtualNode; Column: TColumnIndex): Boolean;
     procedure CalcMinColWidth;
+    procedure UpdateTabCaptions;
   public
     { Public declarations }
     constructor Create(AOwner: TComponent); override;
@@ -211,6 +245,7 @@ begin
   FixVT(listColumns);
   FixVT(treeIndexes);
   FixVT(listForeignKeys);
+  FixVT(listCheckConstraints);
   // Try the best to auto fit various column widths, respecting a custom DPI setting and a pulldown arrow
   listColumns.Header.Columns[2].Width := Mainform.Canvas.TextWidth('GEOMETRYCOLLECTION') + 6*listColumns.TextMargin;
   listColumns.Header.Columns[7].Width := Mainform.Canvas.TextWidth('AUTO_INCREMENT') + 4*listColumns.TextMargin;
@@ -219,13 +254,16 @@ begin
   Mainform.RestoreListSetup(listColumns);
   Mainform.RestoreListSetup(treeIndexes);
   Mainform.RestoreListSetup(listForeignKeys);
+  MainForm.RestoreListSetup(listCheckConstraints);
   comboRowFormat.Items.CommaText := 'DEFAULT,DYNAMIC,FIXED,COMPRESSED,REDUNDANT,COMPACT';
   comboInsertMethod.Items.CommaText := 'NO,FIRST,LAST';
   FColumns := TTableColumnList.Create;
   FKeys := TTableKeyList.Create;
   FForeignKeys := TForeignKeyList.Create;
-  DeletedKeys := TStringList.Create;
-  DeletedForeignKeys := TStringList.Create;
+  FDeletedKeys := TStringList.Create;
+  FDeletedForeignKeys := TStringList.Create;
+  FDeletedCheckConstraints := TStringList.Create;
+  FDeletedCheckConstraints.Duplicates := dupIgnore;
   editName.MaxLength := NAME_LEN;
 end;
 
@@ -236,6 +274,7 @@ begin
   Mainform.SaveListSetup(listColumns);
   Mainform.SaveListSetup(treeIndexes);
   Mainform.SaveListSetup(listForeignKeys);
+  MainForm.SaveListSetup(listCheckConstraints);
   inherited;
 end;
 
@@ -262,6 +301,7 @@ begin
   listColumns.Clear;
   treeIndexes.Clear;
   listForeignKeys.Clear;
+  listCheckConstraints.Clear;
   tabALTERcode.TabVisible := DBObject.Name <> '';
   // Clear value editors
   memoComment.Text := '';
@@ -288,6 +328,7 @@ begin
     FColumns := TTableColumnList.Create;
     FKeys := TTableKeyList.Create;
     FForeignKeys := TForeignKeyList.Create;
+    FCheckConstraints := TCheckConstraintList.Create;
   end else begin
     // Editing existing table
     editName.Text := DBObject.Name;
@@ -338,6 +379,7 @@ begin
     FColumns := DBObject.TableColumns;
     FKeys := DBObject.TableKeys;
     FForeignKeys := DBObject.TableForeignKeys;
+    FCheckConstraints := DBObject.TableCheckConstraints;
   end;
   listColumns.RootNodeCount := FColumns.Count;
   DeInitializeVTNodes(listColumns);
@@ -348,6 +390,7 @@ begin
   // Set root nodes per BeforePaint event:
   treeIndexes.Invalidate;
   listForeignKeys.Invalidate;
+  listCheckConstraints.Invalidate;
 
   // Validate controls
   comboEngineSelect(comboEngine);
@@ -362,6 +405,7 @@ begin
   btnHelp.Top := btnSave.Top;
   btnDiscard.Top := btnSave.Top;
   UpdateSQLCode;
+  UpdateTabCaptions;
   CalcMinColWidth;
   // Indicate change mechanisms can call their events now. See Modification().
   FLoaded := True;
@@ -474,19 +518,25 @@ begin
       FColumns[i].Status := esUntouched;
     end;
   end;
-  DeletedKeys.Clear;
+  FDeletedKeys.Clear;
   for i:=0 to FKeys.Count-1 do begin
     FKeys[i].OldName := FKeys[i].Name;
     FKeys[i].OldIndexType := FKeys[i].IndexType;
     FKeys[i].Added := False;
     FKeys[i].Modified := False;
   end;
-  DeletedForeignKeys.Clear;
+  FDeletedForeignKeys.Clear;
   for i:=0 to FForeignKeys.Count-1 do begin
     FForeignKeys[i].OldKeyName := FForeignKeys[i].KeyName;
     FForeignKeys[i].Added := False;
     FForeignKeys[i].Modified := False;
   end;
+  FDeletedCheckConstraints.Clear;
+  for i:=0 to FCheckConstraints.Count-1 do begin
+    FCheckConstraints[i].Added := False;
+    FCheckConstraints[i].Modified := False;
+  end;
+
   Modified := False;
   btnSave.Enabled := Modified;
   btnDiscard.Enabled := Modified;
@@ -501,6 +551,7 @@ var
   i: Integer;
   Results: TDBQuery;
   Col, PreviousCol: PTableColumn;
+  Constraint: TCheckConstraint;
   Node: PVirtualNode;
   Conn: TDBConnection;
 
@@ -542,7 +593,7 @@ begin
   // Also, do this after the data type was altered, if from TEXT > VARCHAR e.g.
   for i:=0 to FColumns.Count-1 do begin
     if (Conn.Parameters.IsAnyMySQL or Conn.Parameters.IsAnyPostgreSQL)
-      and (FColumns[i].FStatus = esModified)
+      and (FColumns[i].Status = esModified)
       and (FColumns[i].DefaultType = cdtNothing)
       and (FColumns[i].OldDataType.HasDefault)
       then
@@ -594,11 +645,9 @@ begin
   end;
 
   // Update columns
-  MainForm.EnableProgress(FColumns.Count + DeletedKeys.Count + FKeys.Count);
   Node := listColumns.GetFirst;
   PreviousCol := nil;
   while Assigned(Node) do begin
-    Mainform.ProgressStep;
     Col := listColumns.GetNodeData(Node);
     if Col.Status <> esUntouched then begin
       OverrideCollation := IfThen(chkCharsetConvert.Checked, comboCollation.Text);
@@ -699,17 +748,15 @@ begin
   end;
 
   // Drop indexes, also changed indexes, which will be readded below
-  for i:=0 to DeletedKeys.Count-1 do begin
-    Mainform.ProgressStep;
-    if DeletedKeys[i] = TTableKey.PRIMARY then
+  for i:=0 to FDeletedKeys.Count-1 do begin
+    if FDeletedKeys[i] = TTableKey.PRIMARY then
       IndexSQL := 'PRIMARY KEY'
     else
-      IndexSQL := 'INDEX ' + Conn.QuoteIdent(DeletedKeys[i]);
+      IndexSQL := 'INDEX ' + Conn.QuoteIdent(FDeletedKeys[i]);
     Specs.Add('DROP '+IndexSQL);
   end;
   // Add changed or added indexes
   for i:=0 to FKeys.Count-1 do begin
-    Mainform.ProgressStep;
     if FKeys[i].Modified and (not FKeys[i].Added) then begin
       if FKeys[i].OldIndexType = TTableKey.PRIMARY then
         IndexSQL := 'PRIMARY KEY'
@@ -721,12 +768,22 @@ begin
       Specs.Add('ADD '+FKeys[i].SQLCode);
   end;
 
-  for i:=0 to DeletedForeignKeys.Count-1 do
-    Specs.Add('DROP FOREIGN KEY '+Conn.QuoteIdent(DeletedForeignKeys[i]));
+  for i:=0 to FDeletedForeignKeys.Count-1 do
+    Specs.Add('DROP FOREIGN KEY '+Conn.QuoteIdent(FDeletedForeignKeys[i]));
   for i:=0 to FForeignKeys.Count-1 do begin
     if FForeignKeys[i].Added or FForeignKeys[i].Modified then
       Specs.Add('ADD '+FForeignKeys[i].SQLCode(True));
   end;
+
+  // Check constraints
+  for i:=0 to FDeletedCheckConstraints.Count-1 do begin
+    Specs.Add('DROP CONSTRAINT ' + Conn.QuoteIdent(FDeletedCheckConstraints[i]));
+  end;
+  for Constraint in FCheckConstraints do begin
+    if Constraint.Added or Constraint.Modified then
+      Specs.Add('ADD ' + Constraint.SQLCode);
+  end;
+
 
   FinishSpecs;
 
@@ -735,7 +792,6 @@ begin
 
   FreeAndNil(Specs);
   Mainform.ShowStatusMsg;
-  MainForm.DisableProgress;
   Screen.Cursor := crDefault;
 end;
 
@@ -744,6 +800,7 @@ function TfrmTableEditor.ComposeCreateStatement: TSQLBatch;
 var
   i, IndexCount: Integer;
   Col: PTableColumn;
+  Constraint: TCheckConstraint;
   Node: PVirtualNode;
   tmp, SQL: String;
 begin
@@ -767,6 +824,11 @@ begin
 
   for i:=0 to FForeignKeys.Count-1 do
     SQL := SQL + #9 + FForeignKeys[i].SQLCode(True) + ','+CRLF;
+
+  // Check constraints
+  for Constraint in FCheckConstraints do begin
+    SQL := SQL + #9 + Constraint.SQLCode + ',' + sLineBreak;
+  end;
 
   if Integer(listColumns.RootNodeCount) + IndexCount + FForeignKeys.Count > 0 then
     Delete(SQL, Length(SQL)-2, 3);
@@ -1202,7 +1264,7 @@ begin
       if (CellText <> '') and (chkCharsetConvert.Checked) then
         CellText := comboCollation.Text;
     end;
-    10: CellText := Col.Expression;
+    10: CellText := Col.GenerationExpression;
     11: CellText := Col.Virtuality;
   end;
 end;
@@ -1350,7 +1412,7 @@ begin
     end;
     8: Col.Comment := NewText;
     9: Col.Collation := NewText;
-    10: Col.Expression := NewText;
+    10: Col.GenerationExpression := NewText;
     11: Col.Virtuality := NewText;
   end;
   if WasModified then begin
@@ -1611,7 +1673,7 @@ begin
     0: begin
       idx := treeIndexes.FocusedNode.Index;
       if not FKeys[idx].Added then
-        DeletedKeys.Add(FKeys[idx].OldName);
+        FDeletedKeys.Add(FKeys[idx].OldName);
       FKeys.Delete(idx);
       // Delete node although ReinitChildren would do the same, but the Repaint before
       // creates AVs in certain cases. See issue #2557
@@ -1645,7 +1707,7 @@ begin
   SelectNode(treeIndexes, nil);
   for TblKey in FKeys do begin
     if not TblKey.Added then
-      DeletedKeys.Add(TblKey.OldName);
+      FDeletedKeys.Add(TblKey.OldName);
   end;
   FKeys.Clear;
   Modification(Sender);
@@ -1726,7 +1788,7 @@ begin
 end;
 
 
-procedure TfrmTableEditor.treeIndexesClick(Sender: TObject);
+procedure TfrmTableEditor.AnyTreeClick(Sender: TObject);
 var
   VT: TVirtualStringTree;
   Click: THitInfo;
@@ -1756,11 +1818,149 @@ begin
   btnMoveUpIndex.Enabled := HasNode and (Level = 1) and (Node <> treeIndexes.GetFirstChild(Node.Parent));
   btnMoveDownIndex.Enabled := HasNode and (Level = 1) and (Node <> treeIndexes.GetLastChild(Node.Parent));
 
-  menuAddIndexColumn.Enabled := HasNode;
-  menuRemoveIndex.Enabled := btnRemoveIndex.Enabled;
-  menuClearIndexes.Enabled := btnClearIndexes.Enabled;
   menuMoveUpIndex.Enabled := btnMoveUpIndex.Enabled;
   menuMoveDownIndex.Enabled := btnMoveDownIndex.Enabled;
+end;
+
+
+procedure TfrmTableEditor.btnAddCheckConstraintClick(Sender: TObject);
+var
+  CheckConstraint: TCheckConstraint;
+  idx: Integer;
+begin
+  // Add new check constraint
+  CheckConstraint := TCheckConstraint.Create(DBObject.Connection);
+  idx := FCheckConstraints.Add(CheckConstraint);
+  CheckConstraint.Name := 'CC'+IntToStr(idx+1);
+  CheckConstraint.CheckClause := '';
+  CheckConstraint.Added := True;
+  Modification(Sender);
+  listCheckConstraints.Repaint;
+  SelectNode(listCheckConstraints, idx);
+  listCheckConstraints.EditNode(listCheckConstraints.FocusedNode, listCheckConstraints.Header.MainColumn);
+end;
+
+
+procedure TfrmTableEditor.btnRemoveCheckConstraintClick(Sender: TObject);
+var
+  Constraint: TCheckConstraint;
+begin
+  // Remove a foreign key
+  listCheckConstraints.CancelEditNode;
+  Constraint := FCheckConstraints[listCheckConstraints.FocusedNode.Index];
+  if (not Constraint.Added) and (not Constraint.Modified) then
+    FDeletedCheckConstraints.Add(Constraint.Name);
+  FCheckConstraints.Delete(listCheckConstraints.FocusedNode.Index);
+  Modification(Sender);
+  listCheckConstraints.Repaint;
+end;
+
+
+procedure TfrmTableEditor.btnClearCheckConstraintsClick(Sender: TObject);
+var
+  i: Integer;
+begin
+  // Clear all check constraints
+  listCheckConstraints.CancelEditNode;
+  for i:=FCheckConstraints.Count-1 downto 0 do begin
+    if (not FCheckConstraints[i].Added) and (not FCheckConstraints[i].Modified) then
+      FDeletedCheckConstraints.Add(FCheckConstraints[i].Name);
+    FCheckConstraints.Delete(i);
+  end;
+  Modification(Sender);
+  listCheckConstraints.Repaint;
+end;
+
+
+procedure TfrmTableEditor.listCheckConstraintsBeforePaint(
+  Sender: TBaseVirtualTree; TargetCanvas: TCanvas);
+begin
+  // Set RootNodeCount
+  listCheckConstraints.RootNodeCount := FCheckConstraints.Count;
+  btnClearCheckConstraints.Enabled := listCheckConstraints.RootNodeCount > 0;
+end;
+
+
+procedure TfrmTableEditor.listCheckConstraintsCreateEditor(
+  Sender: TBaseVirtualTree; Node: PVirtualNode; Column: TColumnIndex;
+  out EditLink: IVTEditLink);
+var
+  VT: TVirtualStringTree;
+  Edit: TInplaceEditorLink;
+  EnumEditor: TEnumEditorLink;
+  i: Integer;
+begin
+  // Edit check constraint
+  VT := Sender as TVirtualStringTree;
+  case Column of
+    0: begin
+      Edit := TInplaceEditorLink.Create(VT, True);
+      Edit.TitleText := VT.Header.Columns[Column].Text;
+      Edit.ButtonVisible := True;
+      EditLink := Edit;
+    end;
+    1: begin
+      EnumEditor := TEnumEditorLink.Create(VT, True);
+      for i:=Low(MySQLFunctions) to High(MySQLFunctions) do
+        EnumEditor.ValueList.Add(MySQLFunctions[i].Name + MySQLFunctions[i].Declaration);
+      EnumEditor.AllowCustomText := True;
+      EditLink := EnumEditor;
+    end;
+  end;
+end;
+
+
+procedure TfrmTableEditor.listCheckConstraintsFocusChanged(
+  Sender: TBaseVirtualTree; Node: PVirtualNode; Column: TColumnIndex);
+begin
+  // Focus on list changed
+  btnRemoveCheckConstraint.Enabled := Assigned(Node);
+end;
+
+
+procedure TfrmTableEditor.listCheckConstraintsGetImageIndex(
+  Sender: TBaseVirtualTree; Node: PVirtualNode; Kind: TVTImageKind;
+  Column: TColumnIndex; var Ghosted: Boolean; var ImageIndex: TImageIndex);
+begin
+  // Return image index for node cell in list
+  if not (Kind in [ikNormal, ikSelected]) then Exit;
+  case Column of
+    0: ImageIndex := tabCheckConstraints.ImageIndex;
+    else ImageIndex := -1;
+  end;
+end;
+
+
+procedure TfrmTableEditor.listCheckConstraintsGetText(Sender: TBaseVirtualTree;
+  Node: PVirtualNode; Column: TColumnIndex; TextType: TVSTTextType;
+  var CellText: string);
+var
+  CheckConstraint: TCheckConstraint;
+begin
+  // Return cell text in list
+  CheckConstraint := FCheckConstraints[Node.Index];
+  case Column of
+    0: CellText := CheckConstraint.Name;
+    1: CellText := CheckConstraint.CheckClause;
+  end;
+end;
+
+
+procedure TfrmTableEditor.listCheckConstraintsNewText(Sender: TBaseVirtualTree;
+  Node: PVirtualNode; Column: TColumnIndex; NewText: string);
+var
+  Constraint: TCheckConstraint;
+begin
+  // Check constraint edited
+  Constraint := FCheckConstraints[Node.Index];
+  if (not Constraint.Added) and (not Constraint.Modified) then
+    FDeletedCheckConstraints.Add(Constraint.Name);
+  case Column of
+    0: Constraint.Name := NewText;
+    1: Constraint.CheckClause := NewText;
+  end;
+  Constraint.Modified := True;
+  Modification(Sender);
 end;
 
 
@@ -2026,6 +2226,7 @@ procedure TfrmTableEditor.PageControlMainChange(Sender: TObject);
 begin
   treeIndexes.EndEditNode;
   listForeignKeys.EndEditNode;
+  listCheckConstraints.EndEditNode;
   // Ensure SynMemo's have focus, otherwise Select-All and Copy actions may fail
   if PageControlMain.ActivePage = tabCREATEcode then begin
     if SynMemoCreateCode.CanFocus then
@@ -2136,6 +2337,69 @@ begin
 end;
 
 
+procedure TfrmTableEditor.menuAddPropertyClick(Sender: TObject);
+var
+  Comp: TComponent;
+begin
+  Comp := PopupComponent(Sender);
+  if Comp = treeIndexes then
+    btnAddIndex.OnClick(Sender)
+  else if Comp = listForeignKeys then
+    btnAddForeignKey.OnClick(Sender)
+  else if Comp = listCheckConstraints then
+    btnAddCheckConstraint.OnClick(Sender);
+end;
+
+
+procedure TfrmTableEditor.menuRemovePropertyClick(Sender: TObject);
+var
+  Comp: TComponent;
+begin
+  Comp := PopupComponent(Sender);
+  if Comp = treeIndexes then
+    btnRemoveIndex.OnClick(Sender)
+  else if Comp = listForeignKeys then
+    btnRemoveForeignKey.OnClick(Sender)
+  else if Comp = listCheckConstraints then
+    btnRemoveCheckConstraint.OnClick(Sender);
+end;
+
+
+procedure TfrmTableEditor.menuClearPropertiesClick(Sender: TObject);
+var
+  Comp: TComponent;
+begin
+  Comp := PopupComponent(Sender);
+  if Comp = treeIndexes then
+    btnClearIndexes.OnClick(Sender)
+  else if Comp = listForeignKeys then
+    btnClearForeignKeys.OnClick(Sender)
+  else if Comp = listCheckConstraints then
+    btnClearCheckConstraints.OnClick(Sender);
+end;
+
+
+procedure TfrmTableEditor.popupPropertiesPopup(Sender: TObject);
+var
+  Comp: TComponent;
+begin
+  Comp := PopupComponent(Sender);
+  if Comp = treeIndexes then begin
+    menuRemoveProperty.Enabled := btnRemoveIndex.Enabled;
+    menuClearProperties.Enabled := btnClearIndexes.Enabled;
+    menuAddIndexColumn.Enabled := Assigned(treeIndexes.FocusedNode);
+  end else if Comp = listForeignKeys then begin
+    menuRemoveProperty.Enabled := btnRemoveForeignKey.Enabled;
+    menuClearProperties.Enabled := btnClearForeignKeys.Enabled;
+    menuAddIndexColumn.Enabled := False;
+  end else if Comp = listCheckConstraints then begin
+    menuRemoveProperty.Enabled := btnRemoveCheckConstraint.Enabled;
+    menuClearProperties.Enabled := btnClearCheckConstraints.Enabled;
+    menuAddIndexColumn.Enabled := False;
+  end;
+end;
+
+
 procedure TfrmTableEditor.AddIndexByColumn(Sender: TObject);
 var
   Item: TMenuItem;
@@ -2223,7 +2487,7 @@ begin
     listForeignKeys.CancelEditNode;
   Key := FForeignKeys[listForeignKeys.FocusedNode.Index];
   if not Key.Added then
-    DeletedForeignKeys.Add(Key.OldKeyName);
+    FDeletedForeignKeys.Add(Key.OldKeyName);
   FForeignKeys.Delete(listForeignKeys.FocusedNode.Index);
   Modification(Sender);
   listForeignKeys.Repaint;
@@ -2239,7 +2503,7 @@ begin
     listForeignKeys.CancelEditNode;
   for i:=FForeignKeys.Count-1 downto 0 do begin
     if not FForeignKeys[i].Added then
-      DeletedForeignKeys.Add(FForeignKeys[i].OldKeyName);
+      FDeletedForeignKeys.Add(FForeignKeys[i].OldKeyName);
     FForeignKeys.Delete(i);
   end;
   Modification(Sender);
@@ -2550,6 +2814,22 @@ begin
   listColumns.Invalidate;
   Modification(Sender);
   ColsFromClp.Free;
+end;
+
+
+procedure TfrmTableEditor.AnyTreeStructureChange(Sender: TBaseVirtualTree;
+  Node: PVirtualNode; Reason: TChangeReason);
+begin
+  UpdateTabCaptions;
+end;
+
+
+procedure TfrmTableEditor.UpdateTabCaptions;
+begin
+  // Append number of listed keys (or whatever) to the tab caption
+  tabIndexes.Caption := _('Indexes') + ' (' + FKeys.Count.ToString + ')';
+  tabForeignKeys.Caption := _('Foreign keys') + ' (' + FForeignKeys.Count.ToString + ')';
+  tabCheckConstraints.Caption := _('Check constraints') + ' (' + FCheckConstraints.Count.ToString + ')';
 end;
 
 

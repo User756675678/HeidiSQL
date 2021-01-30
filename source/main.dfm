@@ -2965,10 +2965,10 @@ object MainForm: TMainForm
       OnExecute = actSelectAllExecute
       OnUpdate = ValidateControls
     end
-    object actCreateRoutine: TAction
+    object actCreateProcedure: TAction
       Category = 'Database'
-      Caption = 'Stored routine'
-      Hint = 'Create stored routine|Create stored procedure or function'
+      Caption = 'Stored procedure'
+      Hint = 'Create stored procedure'
       ImageIndex = 119
       ImageName = 'icons8-source-code-other'
       OnExecute = actCreateDBObjectExecute
@@ -3020,6 +3020,13 @@ object MainForm: TMainForm
       ImageIndex = 19
       ImageName = 'icons8-sheets-100'
       OnExecute = actTableToolsExecute
+    end
+    object actCreateFunction: TAction
+      Category = 'Database'
+      Caption = 'Stored function'
+      Hint = 'Create stored function'
+      ImageIndex = 35
+      OnExecute = actCreateDBObjectExecute
     end
     object actCreateTrigger: TAction
       Category = 'Database'
@@ -3566,7 +3573,10 @@ object MainForm: TMainForm
         Action = actCreateView
       end
       object menuCreateRoutine: TMenuItem
-        Action = actCreateRoutine
+        Action = actCreateProcedure
+      end
+      object Storedfunction1: TMenuItem
+        Action = actCreateFunction
       end
       object menuCreateTrigger: TMenuItem
         Action = actCreateTrigger
@@ -3818,6 +3828,16 @@ object MainForm: TMainForm
       end
       object DataGUIDwobraces: TMenuItem
         Caption = 'GUID without braces'
+        ImageIndex = 112
+        OnClick = InsertValue
+      end
+      object DataGUIDlowercase: TMenuItem
+        Caption = 'GUID lowercase'
+        ImageIndex = 112
+        OnClick = InsertValue
+      end
+      object DataGUIDlowercaseWobraces: TMenuItem
+        Caption = 'GUID lowercase without braces'
         ImageIndex = 112
         OnClick = InsertValue
       end

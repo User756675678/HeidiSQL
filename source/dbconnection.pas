@@ -31,6 +31,7 @@ type
   TTableColumn = class(TPersistent)
     private
       FConnection: TDBConnection;
+      FStatus: TEditingStatus;
       procedure SetStatus(Value: TEditingStatus);
     public
       Name, OldName: String;
@@ -41,8 +42,7 @@ type
       DefaultText: String;
       OnUpdateType: TColumnDefaultType;
       OnUpdateText: String;
-      Comment, Charset, Collation, Expression, Virtuality: String;
-      FStatus: TEditingStatus;
+      Comment, Charset, Collation, GenerationExpression, Virtuality: String;
       constructor Create(AOwner: TDBConnection; Serialized: String='');
       destructor Destroy; override;
       procedure Assign(Source: TPersistent); override;
@@ -82,6 +82,7 @@ type
       procedure Modification(Sender: TObject);
       function SQLCode: String;
       property ImageIndex: Integer read GetImageIndex;
+      property Connection: TDBConnection read FConnection;
   end;
   TTableKeyList = class(TObjectList<TTableKey>)
     public
@@ -102,12 +103,34 @@ type
       procedure Assign(Source: TPersistent); override;
       function SQLCode(IncludeSymbolName: Boolean): String;
       function ReferenceTableObj: TDBObject;
+      property Connection: TDBConnection read FConnection;
   end;
   TForeignKeyList = class(TObjectList<TForeignKey>)
     public
       procedure Assign(Source: TForeignKeyList);
   end;
   TForeignKeyCache = TDictionary<String,TForeignKeyList>;
+
+  TCheckConstraint = class(TPersistent)
+    private
+      FConnection: TDBConnection;
+      FName, FCheckClause: String;
+      FModified, FAdded: Boolean;
+    public
+      constructor Create(AOwner: TDBConnection);
+      procedure Assign(Source: TPersistent); override;
+      function SQLCode: String;
+      property Connection: TDBConnection read FConnection;
+      property Name: String read FName write FName;
+      property CheckClause: String read FCheckClause write FCheckClause;
+      property Modified: Boolean read FModified write FModified;
+      property Added: Boolean read FAdded write FAdded;
+  end;
+  TCheckConstraintList = class(TObjectList<TCheckConstraint>)
+    public
+      procedure Assign(Source: TCheckConstraintList);
+  end;
+  TCheckConstraintCache = TDictionary<String,TCheckConstraintList>;
 
   TRoutineParam = class(TObject)
     public
@@ -128,6 +151,7 @@ type
       function GetTableColumns: TTableColumnList;
       function GetTableKeys: TTableKeyList;
       function GetTableForeignKeys: TForeignKeyList;
+      function GetTableCheckConstraints: TCheckConstraintList;
     public
       // Table options:
       Name, Schema, Database, Column, Engine, Comment, RowFormat, CreateOptions, Collation: String;
@@ -147,6 +171,7 @@ type
       function QuotedName(AlwaysQuote: Boolean=True; SeparateSegments: Boolean=True): String;
       function QuotedDbAndTableName(AlwaysQuote: Boolean=True): String;
       function QuotedColumn(AlwaysQuote: Boolean=True): String;
+      function SchemaClauseIS(Prefix: String): String;
       function RowCount(Reload: Boolean): Int64;
       function GetCreateCode: String; overload;
       function GetCreateCode(RemoveAutoInc, RemoveDefiner: Boolean): String; overload;
@@ -160,6 +185,7 @@ type
       property TableColumns: TTableColumnList read GetTableColumns;
       property TableKeys: TTableKeyList read GetTableKeys;
       property TableForeignKeys: TForeignKeyList read GetTableForeignKeys;
+      property TableCheckConstraints: TCheckConstraintList read GetTableCheckConstraints;
   end;
   PDBObject = ^TDBObject;
   TDBObjectList = class(TObjectList<TDBObject>)
@@ -262,6 +288,9 @@ type
       FWindowsAuth, FWantSSL, FIsFolder, FCleartextPluginEnabled: Boolean;
       FSessionColor: TColor;
       FLastConnect: TDateTime;
+      FLogFileDdl: Boolean;
+      FLogFileDml: Boolean;
+      FLogFilePath: String;
       class var FLibraries: TNetGroupLibs;
       function GetImageIndex: Integer;
       function GetSessionName: String;
@@ -299,7 +328,7 @@ type
       property NetType: TNetType read FNetType write FNetType;
       property NetTypeGroup: TNetTypeGroup read GetNetTypeGroup;
       property ServerVersion: String read FServerVersion write FServerVersion;
-      property Counter: Integer read FCounter;
+      property Counter: Integer read FCounter write FCounter;
       property LastConnect: TDateTime read FLastConnect;
       property SessionPath: String read FSessionPath write FSessionPath;
       property SessionName: String read GetSessionName;
@@ -334,6 +363,9 @@ type
       property SSLCACertificate: String read FSSLCACertificate write FSSLCACertificate;
       property SSLCipher: String read FSSLCipher write FSSLCipher;
       property IgnoreDatabasePattern: String read FIgnoreDatabasePattern write FIgnoreDatabasePattern;
+      property LogFileDdl: Boolean read FLogFileDdl write FLogFileDdl;
+      property LogFileDml: Boolean read FLogFileDml write FLogFileDml;
+      property LogFilePath: String read FLogFilePath write FLogFilePath;
   end;
   PConnectionParameters = ^TConnectionParameters;
 
@@ -356,7 +388,7 @@ type
     spEmptyTable, spRenameTable, spRenameView, spCurrentUserHost, spLikeCompare,
     spAddColumn, spChangeColumn,
     spGlobalStatus, spCommandsCounters, spSessionVariables, spGlobalVariables,
-    spISTableSchemaCol,
+    spISSchemaCol,
     spUSEQuery, spKillQuery, spKillProcess,
     spFuncLength, spFuncCeil, spFuncLeft, spFuncNow,
     spLockedTables);
@@ -397,6 +429,7 @@ type
       FColumnCache: TColumnCache;
       FKeyCache: TKeyCache;
       FForeignKeyCache: TForeignKeyCache;
+      FCheckConstraintCache: TCheckConstraintCache;
       FCurrentUserHostCombination: String;
       FAllUserHostCombinations: TStringList;
       FLockedByThread: TThread;
@@ -498,6 +531,10 @@ type
       property LastErrorMsg: String read GetLastErrorMsg;
       property ServerOS: String read FServerOS;
       property ServerVersionUntouched: String read FServerVersionUntouched;
+      property ColumnCache: TColumnCache read FColumnCache;
+      property KeyCache: TKeyCache read FKeyCache;
+      property ForeignKeyCache: TForeignKeyCache read FForeignKeyCache;
+      property CheckConstraintCache: TCheckConstraintCache read FCheckConstraintCache;
       property QuoteChar: Char read FQuoteChar;
       property QuoteChars: String read FQuoteChars;
       function ServerVersionStr: String;
@@ -530,6 +567,7 @@ type
       function GetTableColumns(Table: TDBObject): TTableColumnList; virtual;
       function GetTableKeys(Table: TDBObject): TTableKeyList; virtual;
       function GetTableForeignKeys(Table: TDBObject): TForeignKeyList; virtual;
+      function GetTableCheckConstraints(Table: TDBObject): TCheckConstraintList; virtual;
       property MaxRowsPerInsert: Int64 read FMaxRowsPerInsert;
     published
       property Active: Boolean read FActive write SetActive default False;
@@ -1254,6 +1292,9 @@ begin
 
   FSessionColor := AppSettings.GetDefaultInt(asTreeBackground);
   FIgnoreDatabasePattern := DefaultIgnoreDatabasePattern;
+  FLogFileDdl := AppSettings.GetDefaultBool(asLogFileDdl);
+  FLogFileDml := AppSettings.GetDefaultBool(asLogFileDml);
+  FLogFilePath := AppSettings.GetDefaultString(asLogFilePath);
 
   // Must be read without session path
   FSSHPlinkExe := AppSettings.ReadString(asPlinkExecutable);
@@ -1323,6 +1364,9 @@ begin
     FLocalTimeZone := AppSettings.ReadBool(asLocalTimeZone);
     FFullTableStatus := AppSettings.ReadBool(asFullTableStatus);
     FIgnoreDatabasePattern := AppSettings.ReadString(asIgnoreDatabasePattern);
+    FLogFileDdl := AppSettings.ReadBool(asLogFileDdl);
+    FLogFileDml := AppSettings.ReadBool(asLogFileDml);
+    FLogFilePath := AppSettings.ReadString(asLogFilePath);
 
     FServerVersion := AppSettings.ReadString(asServerVersionFull);
     DummyDate := 0;
@@ -1379,6 +1423,9 @@ begin
     AppSettings.WriteString(asSSLCA, FSSLCACertificate);
     AppSettings.WriteString(asSSLCipher, FSSLCipher);
     AppSettings.WriteString(asIgnoreDatabasePattern, FIgnoreDatabasePattern);
+    AppSettings.WriteBool(asLogFileDdl, FLogFileDdl);
+    AppSettings.WriteBool(asLogFileDml, FLogFileDml);
+    AppSettings.WriteString(asLogFilePath, FLogFilePath);
     AppSettings.ResetPath;
     AppSettings.WriteString(asPlinkExecutable, FSSHPlinkExe);
   end;
@@ -1753,6 +1800,7 @@ begin
   FRowsAffected := 0;
   FWarningCount := 0;
   FConnectionStarted := 0;
+  FDatabase := '';
   FLastQueryDuration := 0;
   FLastQueryNetworkDuration := 0;
   FThreadID := 0;
@@ -1763,6 +1811,7 @@ begin
   FColumnCache := TColumnCache.Create;
   FKeyCache := TKeyCache.Create;
   FForeignKeyCache := TForeignKeyCache.Create;
+  FCheckConstraintCache := TCheckConstraintCache.Create;
   FLoginPromptDone := False;
   FCurrentUserHostCombination := '';
   FKeepAliveTimer := TTimer.Create(Self);
@@ -2631,7 +2680,7 @@ begin
         );
       FSQLSpecifities[spSessionVariables] := 'SHOW VARIABLES';
       FSQLSpecifities[spGlobalVariables] := 'SHOW GLOBAL VARIABLES';
-      FSQLSpecifities[spISTableSchemaCol] := 'TABLE_SCHEMA';
+      FSQLSpecifities[spISSchemaCol] := '%s_SCHEMA';
       FSQLSpecifities[spUSEQuery] := 'USE %s';
       FSQLSpecifities[spKillQuery] := 'KILL %d';
       FSQLSpecifities[spKillProcess] := 'KILL %d';
@@ -2652,7 +2701,7 @@ begin
       FSQLSpecifities[spChangeColumn] := 'ALTER COLUMN %s %s';
       FSQLSpecifities[spSessionVariables] := 'SELECT '+QuoteIdent('comment')+', '+QuoteIdent('value')+' FROM '+QuoteIdent('master')+'.'+QuoteIdent('dbo')+'.'+QuoteIdent('syscurconfigs')+' ORDER BY '+QuoteIdent('comment');
       FSQLSpecifities[spGlobalVariables] := FSQLSpecifities[spSessionVariables];
-      FSQLSpecifities[spISTableSchemaCol] := 'TABLE_CATALOG';
+      FSQLSpecifities[spISSchemaCol] := '%s_CATALOG';
       FSQLSpecifities[spUSEQuery] := 'USE %s';
       FSQLSpecifities[spKillQuery] := 'KILL %d';
       FSQLSpecifities[spKillProcess] := 'KILL %d';
@@ -2673,7 +2722,7 @@ begin
       FSQLSpecifities[spChangeColumn] := 'ALTER COLUMN %s %s';
       FSQLSpecifities[spSessionVariables] := 'SHOW ALL';
       FSQLSpecifities[spGlobalVariables] := FSQLSpecifities[spSessionVariables];
-      FSQLSpecifities[spISTableSchemaCol] := 'table_schema';
+      FSQLSpecifities[spISSchemaCol] := '%s_schema';
       FSQLSpecifities[spUSEQuery] := 'SET search_path TO %s';
       FSQLSpecifities[spKillQuery] := 'SELECT pg_cancel_backend(%d)';
       FSQLSpecifities[spKillProcess] := 'SELECT pg_cancel_backend(%d)';
@@ -2694,7 +2743,7 @@ begin
       FSQLSpecifities[spChangeColumn] := 'CHANGE COLUMN %s %s';
       FSQLSpecifities[spSessionVariables] := 'SELECT null, null'; // Todo: combine "PRAGMA pragma_list" + "PRAGMA a; PRAGMY b; ..."?
       FSQLSpecifities[spGlobalVariables] := 'SHOW GLOBAL VARIABLES';
-      FSQLSpecifities[spISTableSchemaCol] := 'TABLE_SCHEMA';
+      FSQLSpecifities[spISSchemaCol] := '%s_SCHEMA';
       FSQLSpecifities[spUSEQuery] := '-- USE %s neither supported nor required'; // Cannot be empty without causing problems
       FSQLSpecifities[spKillQuery] := 'KILL %d';
       FSQLSpecifities[spKillProcess] := 'KILL %d';
@@ -2790,6 +2839,7 @@ var
   TZI: TTimeZoneInformation;
   Minutes, Hours, i: Integer;
   Offset: String;
+  ObjNames: TStringList;
 begin
   inherited;
 
@@ -2823,38 +2873,14 @@ begin
 
   if ServerVersionInt >= 50000 then begin
     FSQLSpecifities[spKillQuery] := 'KILL QUERY %d';
-    // List of known IS tables since MySQL 5, taken from https://dev.mysql.com/doc/refman/5.6/en/information-schema.html
-    FInformationSchemaObjects.CommaText :=
-      'CHARACTER_SETS,'+
-      'COLLATIONS,'+
-      'COLLATION_CHARACTER_SET_APPLICABILITY,'+
-      'COLUMNS,'+
-      'COLUMN_PRIVILEGES,'+
-      'ENGINES,'+
-      'EVENTS,'+
-      'GLOBAL_STATUS,'+
-      'SESSION_STATUS,'+
-      'GLOBAL_VARIABLES,'+
-      'SESSION_VARIABLES,'+
-      'KEY_COLUMN_USAGE,'+
-      'OPTIMIZER_TRACE,'+
-      'PARAMETERS,'+
-      'PARTITIONS,'+
-      'PLUGINS,'+
-      'PROCESSLIST,'+
-      'PROFILING,'+
-      'REFERENTIAL_CONSTRAINTS,'+
-      'ROUTINES,'+
-      'SCHEMATA,'+
-      'SCHEMA_PRIVILEGES,'+
-      'STATISTICS,'+
-      'TABLES,'+
-      'TABLESPACES,'+
-      'TABLE_CONSTRAINTS,'+
-      'TABLE_PRIVILEGES,'+
-      'TRIGGERS,'+
-      'USER_PRIVILEGES,'+
-      'VIEWS';
+  end;
+
+  // List of IS tables
+  try
+    ObjNames := GetCol('SHOW TABLES FROM '+QuoteIdent(FInfSch));
+    FInformationSchemaObjects.CommaText := ObjNames.CommaText;
+    ObjNames.Free;
+  except // silently fail if IS does not exist, on super old servers
   end;
 
   if (ServerVersionInt >= 50124) and (not Parameters.IsProxySQLAdmin) then
@@ -2909,15 +2935,14 @@ end;
 
 
 procedure TPgConnection.DoAfterConnect;
+var
+  ObjNames: TStringList;
 begin
   inherited;
   // List of known IS tables
-  FInformationSchemaObjects.CommaText := 'columns,'+
-    'constraint_column_usage'+
-    'key_column_usage,'+
-    'referential_constraints'+
-    'table_constraints,'+
-    'tables';
+  ObjNames := GetCol('SELECT table_name FROM information_schema.tables WHERE table_schema='+EscapeString(FInfSch));
+  FInformationSchemaObjects.CommaText := ObjNames.CommaText;
+  ObjNames.Free;
 end;
 
 
@@ -3489,17 +3514,8 @@ var
   TableKey: TTableKey;
   TableForeignKeys: TForeignKeyList;
   TableForeignKey: TForeignKey;
-
-  // Return fitting schema clause for queries in IS.TABLES, IS.ROUTINES etc.
-  // TODO: Does not work on MSSQL 2000
-  function SchemaClauseIS(Prefix: String): String;
-  begin
-    if Obj.Schema <> '' then
-      Result := Prefix+'_SCHEMA='+EscapeString(Obj.Schema)
-    else
-      Result := Prefix+'_CATALOG='+EscapeString(Obj.Database);
-  end;
-
+  TableCheckConstraints: TCheckConstraintList;
+  TableCheckConstraint: TCheckConstraint;
 begin
   case Obj.NodeType of
     lntTable: begin
@@ -3521,6 +3537,12 @@ begin
         Result := Result + CRLF + #9 + TableForeignKey.SQLCode(True) + ',';
       end;
       TableForeignKeys.Free;
+
+      TableCheckConstraints := Obj.GetTableCheckConstraints;
+      for TableCheckConstraint in TableCheckConstraints do begin
+        Result := Result + CRLF + #9 + TableCheckConstraint.SQLCode + ',';
+      end;
+      TableCheckConstraints.Free;
 
       Delete(Result, Length(Result), 1);
       Result := Result + CRLF + ')';
@@ -3553,7 +3575,7 @@ begin
           Result := GetVar('SELECT VIEW_DEFINITION'+
             ' FROM '+InfSch+'.VIEWS'+
             ' WHERE TABLE_NAME='+EscapeString(Obj.Name)+
-            ' AND '+SchemaClauseIS('TABLE')
+            ' AND '+Obj.SchemaClauseIS('TABLE')
             );
         end;
       end;
@@ -3607,7 +3629,7 @@ begin
             ' FROM '+InfSch+'.ROUTINES'+
             ' WHERE ROUTINE_NAME='+EscapeString(Obj.Name)+
             ' AND ROUTINE_TYPE='+EscapeString('FUNCTION')+
-            ' AND '+SchemaClauseIS('ROUTINE')
+            ' AND '+Obj.SchemaClauseIS('ROUTINE')
             );
         end;
       end;
@@ -3629,7 +3651,7 @@ begin
             ' FROM '+InfSch+'.ROUTINES'+
             ' WHERE ROUTINE_NAME='+EscapeString(Obj.Name)+
             ' AND ROUTINE_TYPE='+EscapeString('PROCEDURE')+
-            ' AND '+SchemaClauseIS('ROUTINE')
+            ' AND '+Obj.SchemaClauseIS('ROUTINE')
             );
         end;
       end;
@@ -4241,16 +4263,70 @@ end;
   If running a thread, log to queue and let the main thread later do logging
 }
 procedure TDBConnection.Log(Category: TDBLogCategory; Msg: String);
+var
+  LogMessage,
+  FilePath: String;
+  DbObj: TDBObject;
+  LogFileStream: TStreamWriter;
+
+  function IsDdlQuery: Boolean;
+  begin
+    Result := Msg.StartsWith('CREATE', True)
+        or Msg.StartsWith('ALTER', True)
+        or Msg.StartsWith('DROP', True)
+        or Msg.StartsWith('TRUNCATE', True)
+        or Msg.StartsWith('COMMENT', True)
+        or Msg.StartsWith('RENAME', True)
+        ;
+  end;
+
+  function IsDmlQuery: Boolean;
+  begin
+    Result := Msg.StartsWith('INSERT', True)
+        or Msg.StartsWith('UPDATE', True)
+        or Msg.StartsWith('DELETE', True)
+        or Msg.StartsWith('UPSERT', True)
+        ;
+  end;
+
 begin
+  // If in a thread, synchronize logging with the main thread. Logging within a thread
+  // causes SynEdit to throw exceptions left and right.
+  if (FLockedByThread <> nil) and (FLockedByThread.ThreadID = GetCurrentThreadID) then begin
+    (FLockedByThread as TQueryThread).LogFromThread(Msg, Category);
+    Exit;
+  end;
+
   if Assigned(FOnLog) then begin
+    LogMessage := Msg;
     if FLogPrefix <> '' then
-      Msg := '['+FLogPrefix+'] ' + Msg;
-    // If in a thread, synchronize logging with the main thread. Logging within a thread
-    // causes SynEdit to throw exceptions left and right.
-    if (FLockedByThread <> nil) and (FLockedByThread.ThreadID = GetCurrentThreadID) then
-      (FLockedByThread as TQueryThread).LogFromOutside(Msg, Category)
-    else
-      FOnLog(Msg, Category, Self);
+      LogMessage := '['+FLogPrefix+'] ' + LogMessage;
+    FOnLog(LogMessage, Category, Self);
+  end;
+
+  if Category in [lcSQL, lcUserFiredSQL, lcScript] then begin
+    if (Parameters.LogFileDdl and IsDdlQuery)
+      or (Parameters.LogFileDml and IsDmlQuery)
+      then begin
+      // Log DDL queries to migration file
+      DbObj := TDBObject.Create(Self);
+      DbObj.Database := IfThen(FDatabase.IsEmpty, 'nodb', FDatabase);
+      FilePath := GetOutputFilename(Parameters.LogFilePath, DbObj);
+      DbObj.Free;
+      try
+        ForceDirectories(ExtractFileDir(FilePath));
+        LogFileStream := TStreamWriter.Create(FilePath, True, UTF8NoBOMEncoding);
+        LogFileStream.Write(Msg + ';' + sLineBreak);
+        LogFileStream.Free;
+      except
+        on E:Exception do begin
+          Parameters.LogFileDdl := False;
+          Parameters.LogFileDml := False;
+          Log(lcError, E.Message);
+          Log(lcInfo, _('Logging disabled'));
+        end;
+      end;
+    end;
   end;
 end;
 
@@ -4865,18 +4941,14 @@ var
   TableIdx: Integer;
   ColQuery: TDBQuery;
   Col: TTableColumn;
-  dt, SchemaClause, DefText, ExtraText, MaxLen: String;
+  dt, DefText, ExtraText, MaxLen: String;
 begin
   // Generic: query table columns from IS.COLUMNS
   Log(lcDebug, 'Getting fresh columns for '+Table.QuotedDbAndTableName);
   Result := TTableColumnList.Create(True);
   TableIdx := InformationSchemaObjects.IndexOf('columns');
-  if Table.Schema <> '' then
-    SchemaClause := 'TABLE_SCHEMA='+EscapeString(Table.Schema)
-  else
-    SchemaClause := GetSQLSpecifity(spISTableSchemaCol)+'='+EscapeString(Table.Database);
   ColQuery := GetResults('SELECT * FROM '+QuoteIdent(InfSch)+'.'+QuoteIdent(InformationSchemaObjects[TableIdx])+
-    ' WHERE '+SchemaClause+' AND TABLE_NAME='+EscapeString(Table.Name)+
+    ' WHERE '+Table.SchemaClauseIS('TABLE')+' AND TABLE_NAME='+EscapeString(Table.Name)+
     ' ORDER BY ORDINAL_POSITION');
   while not ColQuery.Eof do begin
     Col := TTableColumn.Create(Self);
@@ -4924,7 +4996,7 @@ begin
     Col.Charset := ColQuery.Col('CHARACTER_SET_NAME');
     Col.Collation := ColQuery.Col('COLLATION_NAME');
     // MSSQL has no expression
-    Col.Expression := ColQuery.Col('GENERATION_EXPRESSION', True);
+    Col.GenerationExpression := ColQuery.Col('GENERATION_EXPRESSION', True);
     // PG has no extra:
     ExtraText := ColQuery.Col('EXTRA', True);
     Col.Virtuality := RegExprGetMatch('\b(\w+)\s+generated\b', ExtraText.ToLowerInvariant, 1);
@@ -5573,6 +5645,37 @@ begin
 end;
 
 
+function TDBConnection.GetTableCheckConstraints(Table: TDBObject): TCheckConstraintList;
+var
+  CheckQuery: TDBQuery;
+  CheckConstraint: TCheckConstraint;
+  IdxTableName: Integer;
+begin
+  Result := TCheckConstraintList.Create(True);
+  IdxTableName := FInformationSchemaObjects.IndexOf('CHECK_CONSTRAINTS');
+  if IdxTableName = -1 then
+    Exit;
+  try
+    CheckQuery := GetResults('SELECT * FROM '+QuoteIdent(InfSch)+'.'+QuoteIdent(FInformationSchemaObjects[IdxTableName])+
+      ' WHERE '+Table.SchemaClauseIS('CONSTRAINT')+' AND TABLE_NAME='+EscapeString(Table.Name));
+    while not CheckQuery.Eof do begin
+      CheckConstraint := TCheckConstraint.Create(Self);
+      Result.Add(CheckConstraint);
+      CheckConstraint.Name := CheckQuery.Col('CONSTRAINT_NAME');
+      CheckConstraint.CheckClause := CheckQuery.Col('CHECK_CLAUSE');
+      CheckQuery.Next;
+    end;
+    CheckQuery.Free;
+  except
+    on E:EDbError do begin
+      Log(lcError, 'Detection of check constraints disabled due to error in query');
+      // Table is likely not there or does not have expected columns - prevent further queries with the same error:
+      FInformationSchemaObjects.Delete(IdxTableName);
+    end;
+  end;
+end;
+
+
 function TMySQLConnection.GetRowCount(Obj: TDBObject): Int64;
 var
   Rows: String;
@@ -5829,6 +5932,7 @@ begin
     FColumnCache.Clear;
     FKeyCache.Clear;
     FForeignKeyCache.Clear;
+    FCheckConstraintCache.Clear;
   end;
   FTableEngineDefault := '';
   FCurrentUserHostCombination := '';
@@ -5970,6 +6074,7 @@ begin
     FColumnCache.Clear;
     FKeyCache.Clear;
     FForeignKeyCache.Clear;
+    FCheckConstraintCache.Clear;
     if Assigned(FOnObjectnamesChanged) then
       FOnObjectnamesChanged(Self, db);
   end;
@@ -6664,7 +6769,7 @@ begin
   Result := QueryType + ' ';
   case FParameters.NetTypeGroup of
     ngMSSQL: begin
-      if QueryType = 'UPDATE' then begin
+      if (QueryType = 'UPDATE') or (QueryType = 'DELETE') then begin
         // TOP(x) clause for UPDATES + DELETES introduced in MSSQL 2005
         if ServerVersionInt >= 900 then
           Result := Result + 'TOP('+IntToStr(Limit)+') ';
@@ -6679,7 +6784,8 @@ begin
           // OFFSET not supported in < 2012
           Result := Result + 'TOP ' + IntToStr(Limit) + ' ' + QueryBody;
         end;
-      end;
+      end else
+        Result := Result + QueryBody;
     end;
     ngMySQL: begin
       Result := Result + QueryBody + ' LIMIT ';
@@ -8711,6 +8817,8 @@ begin
     FConnection.FKeyCache.Remove(QuotedDbAndTableName);
   if FConnection.FForeignKeyCache.ContainsKey(QuotedDbAndTableName) then
     FConnection.FForeignKeyCache.Remove(QuotedDbAndTableName);
+  if FConnection.FCheckConstraintCache.ContainsKey(QuotedDbAndTableName) then
+    FConnection.FCheckConstraintCache.Remove(QuotedDbAndTableName);
   FCreateCode := '';
   FCreateCodeLoaded := False;
 end;
@@ -8912,6 +9020,16 @@ begin
   Result := Connection.QuoteIdent(Column, AlwaysQuote);
 end;
 
+// Return fitting schema clause for queries in IS.TABLES, IS.ROUTINES etc.
+// TODO: Does not work on MSSQL 2000
+function TDBObject.SchemaClauseIS(Prefix: String): String;
+begin
+  if Schema <> '' then
+    Result := Prefix+'_SCHEMA' + '=' + Connection.EscapeString(Schema)
+  else
+    Result := Connection.GetSQLSpecifity(spISSchemaCol, [Prefix]) + '=' + Connection.EscapeString(Database);
+end;
+
 function TDBObject.RowCount(Reload: Boolean): Int64;
 begin
   if (Rows = -1) or Reload then begin
@@ -8963,6 +9081,19 @@ begin
   FConnection.FForeignKeyCache.TryGetValue(QuotedDbAndTableName, ForeignKeysInCache);
   Result := TForeignKeyList.Create;
   Result.Assign(ForeignKeysInCache);
+end;
+
+function TDBObject.GetTableCheckConstraints: TCheckConstraintList;
+var
+  CheckConstraintsInCache: TCheckConstraintList;
+begin
+  // Return check constraint from table object
+  if not FConnection.CheckConstraintCache.ContainsKey(QuotedDbAndTableName) then begin
+    FConnection.CheckConstraintCache.Add(QuotedDbAndTableName, Connection.GetTableCheckConstraints(Self));
+  end;
+  FConnection.CheckConstraintCache.TryGetValue(QuotedDbAndTableName, CheckConstraintsInCache);
+  Result := TCheckConstraintList.Create;
+  Result.Assign(CheckConstraintsInCache);
 end;
 
 
@@ -9019,7 +9150,7 @@ begin
   Comment := FromSerialized('Comment', '');
   Charset := FromSerialized('Charset', '');
   Collation := FromSerialized('Collation', '');
-  Expression := FromSerialized('Expression', '');
+  GenerationExpression := FromSerialized('Expression', '');
   Virtuality := FromSerialized('Virtuality', '');
   NumVal := FromSerialized('Status', Integer(esUntouched).ToString);
   FStatus := TEditingStatus(NumVal.ToInteger);
@@ -9054,7 +9185,7 @@ begin
     Comment := s.Comment;
     Charset := s.Charset;
     Collation := s.Collation;
-    Expression := s.Expression;
+    GenerationExpression := s.GenerationExpression;
     Virtuality := s.Virtuality;
     FStatus := s.FStatus;
   end else
@@ -9086,7 +9217,7 @@ begin
   s.AddPair('Comment', Comment);
   s.AddPair('Charset', Charset);
   s.AddPair('Collation', Collation);
-  s.AddPair('Expression', Expression);
+  s.AddPair('GenerationExpression', GenerationExpression);
   s.AddPair('Virtuality', Virtuality);
   s.AddPair('Status', Integer(FStatus).ToString);
 
@@ -9116,7 +9247,7 @@ var
   end;
 begin
   Result := '';
-  IsVirtual := (Expression <> '') and (Virtuality <> '');
+  IsVirtual := (GenerationExpression <> '') and (Virtuality <> '');
 
   if InParts(cpName) then begin
     Result := Result + FConnection.QuoteIdent(Name) + ' ';
@@ -9163,7 +9294,7 @@ begin
 
   if InParts(cpVirtuality) then begin
     if IsVirtual then
-      Result := Result + 'AS ('+Expression+') ' + Virtuality + ' ';
+      Result := Result + 'AS ('+GenerationExpression+') ' + Virtuality + ' ';
   end;
 
   if InParts(cpComment) then begin
@@ -9251,7 +9382,7 @@ var
   Item, ItemCopy: TTableColumn;
 begin
   for Item in Source do begin
-    ItemCopy := TTableColumn.Create(Item.FConnection);
+    ItemCopy := TTableColumn.Create(Item.Connection);
     ItemCopy.Assign(Item);
     Add(ItemCopy);
   end;
@@ -9351,7 +9482,7 @@ var
   Item, ItemCopy: TTableKey;
 begin
   for Item in Source do begin
-    ItemCopy := TTableKey.Create(Item.FConnection);
+    ItemCopy := TTableKey.Create(Item.Connection);
     ItemCopy.Assign(Item);
     Add(ItemCopy);
   end;
@@ -9444,13 +9575,51 @@ var
   Item, ItemCopy: TForeignKey;
 begin
   for Item in Source do begin
-    ItemCopy := TForeignKey.Create(Item.FConnection);
+    ItemCopy := TForeignKey.Create(Item.Connection);
     ItemCopy.Assign(Item);
     Add(ItemCopy);
   end;
 end;
 
 
+{ *** TCheckConstraint }
+
+constructor TCheckConstraint.Create(AOwner: TDBConnection);
+begin
+  inherited Create;
+  FConnection := AOwner;
+end;
+
+
+procedure TCheckConstraint.Assign(Source: TPersistent);
+var
+  s: TCheckConstraint;
+begin
+  if Source is TCheckConstraint then begin
+    s := Source as TCheckConstraint;
+    FName := s.Name;
+    FCheckClause := s.CheckClause;
+    FModified := s.Modified;
+    FAdded := s.Added;
+  end else
+    inherited;
+end;
+
+function TCheckConstraint.SQLCode: String;
+begin
+  Result := 'CONSTRAINT '+FConnection.QuoteIdent(FName)+' CHECK ('+FCheckClause+')';
+end;
+
+procedure TCheckConstraintList.Assign(Source: TCheckConstraintList);
+var
+  Item, ItemCopy: TCheckConstraint;
+begin
+  for Item in Source do begin
+    ItemCopy := TCheckConstraint.Create(Item.Connection);
+    ItemCopy.Assign(Item);
+    Add(ItemCopy);
+  end;
+end;
 
 
 procedure SQLite_CollationNeededCallback(userData: Pointer; ppDb:Psqlite3; eTextRep:integer; zName:PAnsiChar); cdecl;
